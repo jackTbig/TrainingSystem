@@ -1,0 +1,113 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    height: 100vh;
+    overflow: hidden;
+    background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
+    position: relative;
+}
+
+/* 科技感动态背景 */
+body::before {
+    content: '';
+    position: absolute;
+    width: 200%;
+    height: 200%;
+    top: -50%;
+    left: -50%;
+    z-index: -1;
+    background:
+        radial-gradient(circle at 20% 50%, rgba(0, 255, 255, 0.1) 0%, transparent 50%),
+        radial-gradient(circle at 80% 80%, rgba(0, 150, 255, 0.1) 0%, transparent 50%),
+        radial-gradient(circle at 40% 20%, rgba(138, 43, 226, 0.1) 0%, transparent 50%);
+    animation: backgroundMove 20s ease-in-out infinite alternate;
+}
+
+@keyframes backgroundMove {
+    0% {
+        transform: translate(0, 0) rotate(0deg);
+    }
+    100% {
+        transform: translate(50px, 50px) rotate(10deg);
+    }
+}
+
+/* 添加网格效果增强科技感 */
+body::after {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    z-index: -1;
+    background-image:
+        linear-gradient(rgba(0, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+    animation: gridMove 3s linear infinite;
+}
+
+@keyframes gridMove {
+    0% {
+        background-position: 0 0;
+    }
+    100% {
+        background-position: 50px 50px;
+    }
+}
+
+.container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    position: relative;
+    z-index: 1;
+}
+
+.artistic-text {
+    font-size: 8rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #00ffff;
+    text-shadow:
+        0 0 10px rgba(0, 255, 255, 0.8),
+        0 0 20px rgba(0, 255, 255, 0.6),
+        0 0 30px rgba(0, 255, 255, 0.4),
+        0 0 40px rgba(0, 255, 255, 0.2),
+        0 0 70px rgba(0, 255, 255, 0.1),
+        0 0 100px rgba(0, 255, 255, 0.05);
+    animation: float 3s ease-in-out infinite;
+    transition: color 0.5s ease, text-shadow 0.5s ease;
+    position: relative;
+}
+
+/* 浮动效果 */
+@keyframes float {
+    0%, 100% {
+        transform: translateY(0px);
+    }
+    50% {
+        transform: translateY(-20px);
+    }
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+    .artistic-text {
+        font-size: 4rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .artistic-text {
+        font-size: 2.5rem;
+    }
+}
