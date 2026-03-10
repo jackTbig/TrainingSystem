@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import Body, APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -11,31 +11,44 @@ from app.models.user import Department, DepartmentMembership, User
 router = APIRouter()
 
 
-def dept_to_dict(d: Department) -> dict:
-    return {
-        "id": str(d.id),
-        "name": d.name,
-        "parent_id": str(d.parent_id) if d.parent_id else None,
-        "status": d.status,
-        "member_count": len(d.memberships),
-        "children": [dept_to_dict(c) for c in d.children],
-        "created_at": d.created_at.isoformat() if d.created_at else None,
-    }
-
-
 @router.get("", response_model=dict, summary="部门树")
 async def list_departments(
     _: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Department).where(Department.parent_id.is_(None)))
-    roots = result.scalars().all()
-    return success_response(data=[dept_to_dict(d) for d in roots])
+    # Load all at once to avoid async lazy-load on self-referential children
+    all_depts = (await db.execute(select(Department))).scalars().all()
+    all_mems = (await db.execute(select(DepartmentMembership))).scalars().all()
+    member_counts: dict[str, int] = {}
+    for m in all_mems:
+        k = str(m.department_id)
+        member_counts[k] = member_counts.get(k, 0) + 1
+
+    nodes: dict[str, dict] = {
+        str(d.id): {
+            "id": str(d.id),
+            "name": d.name,
+            "parent_id": str(d.parent_id) if d.parent_id else None,
+            "status": d.status,
+            "member_count": member_counts.get(str(d.id), 0),
+            "children": [],
+            "created_at": d.created_at.isoformat() if d.created_at else None,
+        }
+        for d in all_depts
+    }
+    roots = []
+    for node in nodes.values():
+        pid = node["parent_id"]
+        if pid and pid in nodes:
+            nodes[pid]["children"].append(node)
+        else:
+            roots.append(node)
+    return success_response(data=roots)
 
 
 @router.post("", response_model=dict, summary="创建部门")
 async def create_department(
-    data: dict,
+    data: dict = Body(...),
     _: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
@@ -71,7 +84,7 @@ async def list_members(
 @router.post("/{dept_id}/members", response_model=dict, summary="添加部门成员")
 async def add_member(
     dept_id: uuid.UUID,
-    data: dict,
+    data: dict = Body(...),
     _: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
@@ -117,7 +130,7 @@ async def remove_member(
 @router.put("/{dept_id}", response_model=dict, summary="更新部门")
 async def update_department(
     dept_id: uuid.UUID,
-    data: dict,
+    data: dict = Body(...),
     _: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):

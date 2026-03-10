@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import Body, APIRouter, Depends, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -39,7 +39,7 @@ async def list_roles(
 
 @router.post("", response_model=dict, summary="创建角色")
 async def create_role(
-    data: dict,
+    data: dict = Body(...),
     _: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
@@ -90,7 +90,7 @@ async def get_role(
 @router.put("/{role_id}/permissions", response_model=dict, summary="设置角色权限")
 async def set_role_permissions(
     role_id: uuid.UUID,
-    data: dict,
+    data: dict = Body(...),
     _: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
@@ -110,7 +110,7 @@ async def set_role_permissions(
 @router.put("/{role_id}/users", response_model=dict, summary="设置角色用户")
 async def set_role_users(
     role_id: uuid.UUID,
-    data: dict,
+    data: dict = Body(...),
     _: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
