@@ -1,0 +1,185 @@
+import uuid
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Body, Depends, Query
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.api.deps import get_current_user_id, get_db
+from app.core.exceptions import BusinessException, NotFoundException
+from app.core.response import paginated_response, success_response
+from app.models.training import StudyProgress, TrainingAssignment, TrainingTask
+
+router = APIRouter()
+
+
+@router.get("", response_model=dict, summary="培训任务列表")
+async def list_training_tasks(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: str | None = Query(None),
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    q = select(TrainingTask)
+    if status:
+        q = q.where(TrainingTask.status == status)
+    total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
+    q = q.order_by(TrainingTask.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    rows = list((await db.execute(q)).scalars().all())
+    return paginated_response(
+        items=[{"id": str(r.id), "title": r.title, "status": r.status,
+                "due_at": r.due_at.isoformat() if r.due_at else None,
+                "created_at": r.created_at.isoformat()} for r in rows],
+        total=total, page=page, page_size=page_size,
+    )
+
+
+@router.post("", response_model=dict, summary="创建培训任务")
+async def create_training_task(
+    title: str = Body(...),
+    description: str | None = Body(None),
+    course_version_id: uuid.UUID | None = Body(None),
+    exam_id: uuid.UUID | None = Body(None),
+    due_at: datetime | None = Body(None),
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    task = TrainingTask(
+        title=title, description=description,
+        course_version_id=course_version_id, exam_id=exam_id,
+        due_at=due_at, created_by=uuid.UUID(user_id),
+    )
+    db.add(task)
+    await db.commit()
+    await db.refresh(task)
+    return success_response(data={"id": str(task.id), "title": task.title, "status": task.status})
+
+
+@router.post("/{task_id}/publish", response_model=dict, summary="发布培训任务")
+async def publish_task(
+    task_id: uuid.UUID,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(TrainingTask).where(TrainingTask.id == task_id))
+    task = result.scalar_one_or_none()
+    if not task:
+        raise NotFoundException(code="TASK_NOT_FOUND", message="培训任务不存在")
+    if task.status != "draft":
+        raise BusinessException(code="TASK_NOT_DRAFT", message="只有草稿可发布")
+    task.status = "published"
+    await db.commit()
+    return success_response(data={"id": str(task.id), "status": task.status})
+
+
+@router.post("/{task_id}/assign", response_model=dict, summary="分配学员")
+async def assign_users(
+    task_id: uuid.UUID,
+    user_ids: list[uuid.UUID] = Body(...),
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(TrainingTask).where(TrainingTask.id == task_id))
+    task = result.scalar_one_or_none()
+    if not task:
+        raise NotFoundException(code="TASK_NOT_FOUND", message="培训任务不存在")
+    created = 0
+    for uid in user_ids:
+        existing = await db.execute(
+            select(TrainingAssignment).where(
+                TrainingAssignment.training_task_id == task_id,
+                TrainingAssignment.user_id == uid,
+            )
+        )
+        if not existing.scalar_one_or_none():
+            asgn = TrainingAssignment(training_task_id=task_id, user_id=uid)
+            db.add(asgn)
+            created += 1
+    await db.commit()
+    return success_response(data={"assigned": created}, message=f"已分配 {created} 名学员")
+
+
+@router.get("/my", response_model=dict, summary="我的培训任务列表（学员端）")
+async def my_training_tasks(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """返回当前用户被分配的培训任务及进度。"""
+    uid = uuid.UUID(user_id)
+    q = select(TrainingAssignment).where(TrainingAssignment.user_id == uid)
+    total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
+    q = q.order_by(TrainingAssignment.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    assignments = list((await db.execute(q)).scalars())
+
+    items = []
+    for asgn in assignments:
+        task_result = await db.execute(select(TrainingTask).where(TrainingTask.id == asgn.training_task_id))
+        task = task_result.scalar_one_or_none()
+        if not task:
+            continue
+        prog_result = await db.execute(
+            select(StudyProgress).where(StudyProgress.training_assignment_id == asgn.id)
+        )
+        prog = prog_result.scalar_one_or_none()
+        items.append({
+            "assignment_id": str(asgn.id),
+            "task_id": str(task.id),
+            "title": task.title,
+            "description": task.description,
+            "course_version_id": str(task.course_version_id) if task.course_version_id else None,
+            "exam_id": str(task.exam_id) if task.exam_id else None,
+            "due_at": task.due_at.isoformat() if task.due_at else None,
+            "assignment_status": asgn.assignment_status,
+            "progress_percent": prog.progress_percent if prog else 0,
+            "completed": prog.completed if prog else False,
+        })
+    return paginated_response(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.post("/assignments/{assignment_id}/progress", response_model=dict, summary="更新学习进度")
+async def update_progress(
+    assignment_id: uuid.UUID,
+    progress_percent: int = Body(..., ge=0, le=100),
+    last_position: dict | None = Body(None),
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(TrainingAssignment).where(TrainingAssignment.id == assignment_id)
+    )
+    asgn = result.scalar_one_or_none()
+    if not asgn:
+        raise NotFoundException(code="ASSIGNMENT_NOT_FOUND", message="培训分配不存在")
+    if str(asgn.user_id) != user_id:
+        raise BusinessException(code="FORBIDDEN", message="无权操作")
+
+    prog_result = await db.execute(
+        select(StudyProgress).where(StudyProgress.training_assignment_id == assignment_id)
+    )
+    prog = prog_result.scalar_one_or_none()
+    if prog:
+        prog.progress_percent = progress_percent
+        if last_position:
+            prog.last_position = last_position
+        if progress_percent >= 100:
+            prog.completed = True
+        prog.updated_at = datetime.now(timezone.utc)
+    else:
+        prog = StudyProgress(
+            training_assignment_id=assignment_id,
+            progress_percent=progress_percent,
+            last_position=last_position,
+            completed=(progress_percent >= 100),
+        )
+        db.add(prog)
+
+    if progress_percent >= 100 and asgn.assignment_status == "assigned":
+        asgn.assignment_status = "study_completed"
+        asgn.study_completed_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    return success_response(data={"progress_percent": progress_percent, "completed": progress_percent >= 100})

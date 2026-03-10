@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+*.egg
+
+# Environment / secrets
+backend/.env
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Alembic generated (keep versions)
+backend/alembic/versions/__pycache__/
+
+# Frontend build
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Test artifacts
+frontend/ui-screenshots/
+frontend/ui-test.mjs
+
+# Logs / temp
+*.log
+/tmp/
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.user
+
+# OS
+.DS_Store
+Thumbs.db
