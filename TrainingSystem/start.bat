@@ -3,27 +3,35 @@ echo ============================================
 echo  TrainingSystem - Start Script
 echo ============================================
 
-:: Kill old uvicorn processes
-echo [1/5] Stopping old uvicorn processes...
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000 "') do taskkill /PID %%a /F >/dev/null 2>&1
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8001 "') do taskkill /PID %%a /F >/dev/null 2>&1
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8002 "') do taskkill /PID %%a /F >/dev/null 2>&1
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8003 "') do taskkill /PID %%a /F >/dev/null 2>&1
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8004 "') do taskkill /PID %%a /F >/dev/null 2>&1
-for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8005 "') do taskkill /PID %%a /F >/dev/null 2>&1
+:: Kill old processes on port 8000
+echo [1/5] Stopping old processes...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000 "') do taskkill /PID %%a /F 2>nul
 timeout /t 2 >nul
 
-:: Start Docker
-echo [2/5] Starting Docker services...
+:: Check/Start Docker Desktop
+echo [2/5] Checking Docker...
+docker info >nul
+if errorlevel 1 (
+    echo   Starting Docker Desktop, please wait...
+    start "" "C:\Program Files\Docker\Docker\Docker Desktop.exe"
+    :waitdocker
+    timeout /t 4 >nul
+    docker info >nul
+    if errorlevel 1 goto waitdocker
+    echo   Docker is ready.
+)
+
+:: Start Docker containers
+echo   Starting containers...
 cd /d "%~dp0infra"
 docker compose up -d
-timeout /t 3 >nul
+timeout /t 5 >nul
 
 :: Start backend
 echo [3/5] Starting backend (port 8000)...
 cd /d "%~dp0backend"
 start "Backend" cmd /k "uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
-timeout /t 3 >nul
+timeout /t 4 >nul
 
 :: Start AI Workers
 echo [4/5] Starting AI Workers...
@@ -38,7 +46,7 @@ start "Frontend" cmd /k "npm run dev"
 
 echo.
 echo ============================================
-echo  All services started
+echo  All services started.
 echo  Frontend : http://localhost:5173
 echo  Backend  : http://localhost:8000
 echo  API Docs : http://localhost:8000/docs
