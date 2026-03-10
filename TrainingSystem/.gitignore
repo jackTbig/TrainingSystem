@@ -43,3 +43,4 @@ frontend/ui-test.mjs
 # OS
 .DS_Store
 Thumbs.db
+frontend/test-results/
