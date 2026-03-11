@@ -136,16 +136,33 @@ export default function RolesPage() {
     { title: '用户数', dataIndex: 'user_count', width: 80, render: (v) => <Tag>{v}</Tag> },
     { title: '权限数', dataIndex: 'permission_count', width: 80, render: (v) => <Tag color="blue">{v}</Tag> },
     {
-      title: '操作', width: 180,
-      render: (_, r) => (
-        <Space size="small">
-          <Button size="small" icon={<SettingOutlined />} onClick={() => openPermDrawer(r)}>权限</Button>
-          <Button size="small" icon={<TeamOutlined />} onClick={() => openUserDrawer(r)}>用户</Button>
-          <Popconfirm title="确认删除该角色？" onConfirm={() => handleDelete(r.id)} okText="删除" cancelText="取消">
-            <Button size="small" danger>删除</Button>
-          </Popconfirm>
-        </Space>
-      ),
+      title: '操作', width: 200,
+      render: (_, r) => {
+        const isSystem = r.code === 'admin'
+        return (
+          <Space size="small">
+            <Button
+              size="small" icon={<SettingOutlined />}
+              onClick={() => openPermDrawer(r)}
+              disabled={isSystem}
+              title={isSystem ? '系统管理员权限不可编辑' : undefined}
+            >权限</Button>
+            <Button size="small" icon={<TeamOutlined />} onClick={() => openUserDrawer(r)}>用户</Button>
+            <Popconfirm
+              title="确认删除该角色？"
+              onConfirm={() => handleDelete(r.id)}
+              okText="删除" cancelText="取消"
+              disabled={isSystem}
+            >
+              <Button
+                size="small" danger
+                disabled={isSystem}
+                title={isSystem ? '系统管理员角色不可删除' : undefined}
+              >删除</Button>
+            </Popconfirm>
+          </Space>
+        )
+      },
     },
   ]
 
