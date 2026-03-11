@@ -123,6 +123,66 @@ async def add_question_version(
     return success_response(data={"id": str(ver.id), "version_no": next_no})
 
 
+@router.put("/{question_id}", response_model=dict, summary="更新题目（新建版本保存更改）")
+async def update_question(
+    question_id: uuid.UUID,
+    data: QuestionVersionCreate,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.core.exceptions import NotFoundException
+    result = await db.execute(
+        select(Question).options(selectinload(Question.versions)).where(Question.id == question_id)
+    )
+    q = result.scalar_one_or_none()
+    if not q:
+        raise NotFoundException(code="QUESTION_NOT_FOUND", message="题目不存在")
+    next_no = max((v.version_no for v in q.versions), default=0) + 1
+    ver = QuestionVersion(
+        question_id=question_id, version_no=next_no,
+        question_type=data.question_type, stem=data.stem, options=data.options,
+        answer_json=data.answer_json, analysis=data.analysis, difficulty_level=data.difficulty_level,
+    )
+    db.add(ver)
+    await db.flush()
+    q.current_version_id = ver.id
+    await db.commit()
+    return success_response(data={"id": str(q.id), "current_version_id": str(ver.id), "version_no": next_no})
+
+
+@router.delete("/{question_id}", response_model=dict, summary="删除题目")
+async def delete_question(
+    question_id: uuid.UUID,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import delete as sql_delete
+    from app.core.exceptions import NotFoundException, BusinessException
+    result = await db.execute(
+        select(Question).options(selectinload(Question.versions)).where(Question.id == question_id)
+    )
+    q = result.scalar_one_or_none()
+    if not q:
+        raise NotFoundException(code="QUESTION_NOT_FOUND", message="题目不存在")
+    # check if any version is in a published exam paper
+    from app.models.exam import ExamPaperItem, ExamAnswer
+    ver_ids = [v.id for v in q.versions]
+    if ver_ids:
+        in_paper = (await db.execute(
+            select(func.count()).select_from(ExamPaperItem)
+            .where(ExamPaperItem.question_version_id.in_(ver_ids))
+        )).scalar_one()
+        if in_paper > 0:
+            raise BusinessException(code="QUESTION_IN_PAPER", message=f"该题目已被 {in_paper} 份试卷引用，无法删除")
+        # delete exam answers referencing these versions
+        await db.execute(sql_delete(ExamAnswer).where(ExamAnswer.question_version_id.in_(ver_ids)))
+    # explicitly delete versions before deleting the question
+    await db.execute(sql_delete(QuestionVersion).where(QuestionVersion.question_id == question_id))
+    await db.delete(q)
+    await db.commit()
+    return success_response(message="题目已删除")
+
+
 @router.post("/{question_id}/status", response_model=dict, summary="更新题目状态")
 async def update_question_status(
     question_id: uuid.UUID,

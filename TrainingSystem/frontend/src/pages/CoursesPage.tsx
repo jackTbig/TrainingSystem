@@ -67,9 +67,26 @@ export default function CoursesPage() {
       render: (v) => new Date(v).toLocaleString('zh-CN'),
     },
     {
-      title: '操作', width: 100,
+      title: '操作', width: 160,
       render: (_, row) => (
-        <Button size="small" onClick={() => navigate(`/courses/${row.id}`)}>查看/编辑</Button>
+        <Space>
+          <Button size="small" onClick={() => navigate(`/courses/${row.id}`)}>查看/编辑</Button>
+          <Button size="small" danger onClick={() => {
+            Modal.confirm({
+              title: '确认删除此课程？',
+              content: '删除后不可恢复，若被培训任务引用则无法删除。',
+              onOk: async () => {
+                try {
+                  await coursesApi.delete(row.id)
+                  message.success('已删除')
+                  fetchData()
+                } catch (e: any) {
+                  message.error(e?.response?.data?.message || '删除失败')
+                }
+              },
+            })
+          }}>删除</Button>
+        </Space>
       ),
     },
   ]

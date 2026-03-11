@@ -16,7 +16,8 @@ class Question(UUIDMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft", index=True)
 
     versions: Mapped[list["QuestionVersion"]] = relationship(
-        "QuestionVersion", back_populates="question", lazy="selectin"
+        "QuestionVersion", back_populates="question", lazy="selectin",
+        passive_deletes=True
     )
 
 

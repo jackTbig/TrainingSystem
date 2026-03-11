@@ -124,6 +124,21 @@ export default function DocumentsPage() {
           {row.status !== 'archived' && (
             <Button size="small" danger onClick={() => handleArchive(row.id)}>归档</Button>
           )}
+          <Button size="small" danger onClick={() => {
+            Modal.confirm({
+              title: '确认删除此文档？',
+              content: '将同时删除所有版本、解析结果和分块数据，不可恢复！',
+              onOk: async () => {
+                try {
+                  await documentsApi.delete(row.id)
+                  message.success('已删除')
+                  fetchDocs()
+                } catch (e: any) {
+                  message.error(e?.response?.data?.message || '删除失败')
+                }
+              },
+            })
+          }}>删除</Button>
         </Space>
       ),
     },

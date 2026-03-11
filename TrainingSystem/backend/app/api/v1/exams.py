@@ -177,6 +177,169 @@ async def create_exam(
     return success_response(data={"id": str(exam.id), "title": exam.title, "status": exam.status})
 
 
+@router.get("/my", response_model=dict, summary="我的可参加考试列表")
+async def my_exams(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """返回已发布的考试，及当前用户的答题状态。"""
+    q = select(Exam).where(Exam.status == "published")
+    total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
+    q = q.order_by(Exam.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    exams = list((await db.execute(q)).scalars())
+
+    uid = uuid.UUID(user_id)
+    items = []
+    for exam in exams:
+        attempt_result = await db.execute(
+            select(ExamAttempt)
+            .where(ExamAttempt.exam_id == exam.id, ExamAttempt.user_id == uid)
+            .order_by(ExamAttempt.started_at.desc())
+            .limit(1)
+        )
+        attempt = attempt_result.scalar_one_or_none()
+        items.append({
+            "id": str(exam.id),
+            "title": exam.title,
+            "description": exam.description,
+            "duration_minutes": exam.duration_minutes,
+            "total_score": exam.total_score,
+            "pass_score": exam.pass_score,
+            "exam_mode": exam.exam_mode,
+            "start_at": exam.start_at.isoformat() if exam.start_at else None,
+            "end_at": exam.end_at.isoformat() if exam.end_at else None,
+            "my_attempt": {
+                "attempt_id": str(attempt.id),
+                "status": attempt.status,
+                "total_score": attempt.total_score,
+                "pass_result": attempt.pass_result,
+                "started_at": attempt.started_at.isoformat(),
+            } if attempt else None,
+        })
+    return paginated_response(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/all-attempts", response_model=dict, summary="管理员：所有考试记录")
+async def list_all_attempts(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    exam_id: uuid.UUID | None = Query(None),
+    pass_result: bool | None = Query(None),
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.user import User
+
+    q = select(ExamAttempt).where(ExamAttempt.status.in_(["submitted", "graded"]))
+    if exam_id:
+        q = q.where(ExamAttempt.exam_id == exam_id)
+    if pass_result is not None:
+        q = q.where(ExamAttempt.pass_result == pass_result)
+
+    total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
+    q = q.order_by(ExamAttempt.submitted_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    attempts = (await db.execute(q)).scalars().all()
+
+    items = []
+    for a in attempts:
+        user = (await db.execute(select(User).where(User.id == a.user_id))).scalar_one_or_none()
+        exam = (await db.execute(select(Exam).where(Exam.id == a.exam_id))).scalar_one_or_none()
+        items.append({
+            "id": str(a.id),
+            "exam_id": str(a.exam_id),
+            "exam_title": exam.title if exam else "",
+            "user_id": str(a.user_id),
+            "username": user.username if user else "",
+            "real_name": user.real_name if user else "",
+            "total_score": a.total_score,
+            "pass_result": a.pass_result,
+            "submitted_at": a.submitted_at.isoformat() if a.submitted_at else None,
+        })
+    return paginated_response(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/{exam_id}", response_model=dict, summary="考试详情")
+async def get_exam(
+    exam_id: uuid.UUID,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Exam).where(Exam.id == exam_id))
+    exam = result.scalar_one_or_none()
+    if not exam:
+        raise NotFoundException(code="EXAM_NOT_FOUND", message="考试不存在")
+    return success_response(data={
+        "id": str(exam.id), "title": exam.title, "description": exam.description,
+        "exam_mode": exam.exam_mode, "duration_minutes": exam.duration_minutes,
+        "total_score": exam.total_score, "pass_score": exam.pass_score,
+        "status": exam.status, "paper_id": str(exam.paper_id) if exam.paper_id else None,
+        "start_at": exam.start_at.isoformat() if exam.start_at else None,
+        "end_at": exam.end_at.isoformat() if exam.end_at else None,
+        "created_at": exam.created_at.isoformat(),
+    })
+
+
+@router.put("/{exam_id}", response_model=dict, summary="更新考试信息")
+async def update_exam(
+    exam_id: uuid.UUID,
+    title: str | None = Body(None),
+    description: str | None = Body(None),
+    duration_minutes: int | None = Body(None),
+    total_score: int | None = Body(None),
+    pass_score: int | None = Body(None),
+    paper_id: uuid.UUID | None = Body(None),
+    start_at: datetime | None = Body(None),
+    end_at: datetime | None = Body(None),
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Exam).where(Exam.id == exam_id))
+    exam = result.scalar_one_or_none()
+    if not exam:
+        raise NotFoundException(code="EXAM_NOT_FOUND", message="考试不存在")
+    if exam.status == "published":
+        raise BusinessException(code="EXAM_PUBLISHED", message="已发布的考试不可修改，请先下线")
+    if title is not None: exam.title = title
+    if description is not None: exam.description = description
+    if duration_minutes is not None: exam.duration_minutes = duration_minutes
+    if total_score is not None: exam.total_score = total_score
+    if pass_score is not None: exam.pass_score = pass_score
+    if paper_id is not None: exam.paper_id = paper_id
+    if start_at is not None: exam.start_at = start_at
+    if end_at is not None: exam.end_at = end_at
+    await db.commit()
+    return success_response(data={"id": str(exam.id), "title": exam.title, "status": exam.status})
+
+
+@router.delete("/{exam_id}", response_model=dict, summary="删除考试")
+async def delete_exam(
+    exam_id: uuid.UUID,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Exam).where(Exam.id == exam_id))
+    exam = result.scalar_one_or_none()
+    if not exam:
+        raise NotFoundException(code="EXAM_NOT_FOUND", message="考试不存在")
+    if exam.status == "published":
+        raise BusinessException(code="EXAM_PUBLISHED", message="已发布的考试不可删除，请先下线")
+    # check for submitted attempts
+    attempt_count = (await db.execute(
+        select(func.count()).select_from(ExamAttempt)
+        .where(ExamAttempt.exam_id == exam_id, ExamAttempt.status == "submitted")
+    )).scalar_one()
+    if attempt_count > 0:
+        raise BusinessException(code="EXAM_HAS_ATTEMPTS", message=f"该考试已有 {attempt_count} 份提交，无法删除")
+    # delete ongoing attempts first
+    from sqlalchemy import delete as sql_delete
+    await db.execute(sql_delete(ExamAttempt).where(ExamAttempt.exam_id == exam_id))
+    await db.delete(exam)
+    await db.commit()
+    return success_response(message="考试已删除")
+
+
 @router.post("/{exam_id}/publish", response_model=dict, summary="发布考试")
 async def publish_exam(
     exam_id: uuid.UUID,
@@ -246,51 +409,6 @@ async def get_exam_paper(
 
 
 # ── 学员考试参与 ───────────────────────────────────────────────────────────────
-
-@router.get("/my", response_model=dict, summary="我的可参加考试列表")
-async def my_exams(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    user_id: str = Depends(get_current_user_id),
-    db: AsyncSession = Depends(get_db),
-):
-    """返回已发布的考试，及当前用户的答题状态。"""
-    q = select(Exam).where(Exam.status == "published")
-    total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
-    q = q.order_by(Exam.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
-    exams = list((await db.execute(q)).scalars())
-
-    uid = uuid.UUID(user_id)
-    items = []
-    for exam in exams:
-        # 查找该用户最新的答题记录
-        attempt_result = await db.execute(
-            select(ExamAttempt)
-            .where(ExamAttempt.exam_id == exam.id, ExamAttempt.user_id == uid)
-            .order_by(ExamAttempt.started_at.desc())
-            .limit(1)
-        )
-        attempt = attempt_result.scalar_one_or_none()
-        items.append({
-            "id": str(exam.id),
-            "title": exam.title,
-            "description": exam.description,
-            "duration_minutes": exam.duration_minutes,
-            "total_score": exam.total_score,
-            "pass_score": exam.pass_score,
-            "exam_mode": exam.exam_mode,
-            "start_at": exam.start_at.isoformat() if exam.start_at else None,
-            "end_at": exam.end_at.isoformat() if exam.end_at else None,
-            "my_attempt": {
-                "attempt_id": str(attempt.id),
-                "status": attempt.status,
-                "total_score": attempt.total_score,
-                "pass_result": attempt.pass_result,
-                "started_at": attempt.started_at.isoformat(),
-            } if attempt else None,
-        })
-    return paginated_response(items=items, total=total, page=page, page_size=page_size)
-
 
 @router.post("/{exam_id}/start", response_model=dict, summary="开始考试")
 async def start_exam(
@@ -461,40 +579,3 @@ async def get_attempt_result(
     return await get_attempt(attempt_id, user_id, db)
 
 
-@router.get("/all-attempts", response_model=dict, summary="管理员：所有考试记录")
-async def list_all_attempts(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    exam_id: uuid.UUID | None = Query(None),
-    pass_result: bool | None = Query(None),
-    _: str = Depends(get_current_user_id),
-    db: AsyncSession = Depends(get_db),
-):
-    from app.models.user import User
-
-    q = select(ExamAttempt).where(ExamAttempt.status == "submitted")
-    if exam_id:
-        q = q.where(ExamAttempt.exam_id == exam_id)
-    if pass_result is not None:
-        q = q.where(ExamAttempt.pass_result == pass_result)
-
-    total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
-    q = q.order_by(ExamAttempt.submitted_at.desc()).offset((page - 1) * page_size).limit(page_size)
-    attempts = (await db.execute(q)).scalars().all()
-
-    items = []
-    for a in attempts:
-        user = (await db.execute(select(User).where(User.id == a.user_id))).scalar_one_or_none()
-        exam = (await db.execute(select(Exam).where(Exam.id == a.exam_id))).scalar_one_or_none()
-        items.append({
-            "id": str(a.id),
-            "exam_id": str(a.exam_id),
-            "exam_title": exam.title if exam else "",
-            "user_id": str(a.user_id),
-            "username": user.username if user else "",
-            "real_name": user.real_name if user else "",
-            "total_score": a.total_score,
-            "pass_result": a.pass_result,
-            "submitted_at": a.submitted_at.isoformat() if a.submitted_at else None,
-        })
-    return paginated_response(items=items, total=total, page=page, page_size=page_size)

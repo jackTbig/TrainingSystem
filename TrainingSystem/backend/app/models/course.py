@@ -22,7 +22,8 @@ class Course(UUIDMixin, TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft", index=True)
 
     versions: Mapped[list["CourseVersion"]] = relationship(
-        "CourseVersion", back_populates="course", lazy="selectin"
+        "CourseVersion", back_populates="course", lazy="selectin",
+        passive_deletes=True
     )
 
 
@@ -50,7 +51,8 @@ class CourseVersion(UUIDMixin, TimestampMixin, Base):
     course: Mapped["Course"] = relationship("Course", back_populates="versions")
     chapters: Mapped[list["CourseChapter"]] = relationship(
         "CourseChapter", back_populates="course_version",
-        lazy="selectin", order_by="CourseChapter.chapter_no"
+        lazy="selectin", order_by="CourseChapter.chapter_no",
+        passive_deletes=True
     )
 
 

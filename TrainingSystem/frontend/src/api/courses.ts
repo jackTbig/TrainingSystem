@@ -36,4 +36,5 @@ export const coursesApi = {
   updateChapter: (chapterId: string, data: { title?: string; content?: string }) =>
     client.put<{ code: string; data: CourseChapter }>(`/courses/chapters/${chapterId}`, data),
   deleteChapter: (chapterId: string) => client.delete(`/courses/chapters/${chapterId}`),
+  delete: (courseId: string) => client.delete(`/courses/${courseId}`),
 }

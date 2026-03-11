@@ -43,9 +43,11 @@ async def create_role(
     _: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
+    import re, time
+    raw_code = data.get("code") or re.sub(r'[^a-zA-Z0-9_]', '_', data["name"]) + f'_{int(time.time())%10000}'
     role = Role(
         id=uuid.uuid4(),
-        code=data["code"],
+        code=raw_code,
         name=data["name"],
         description=data.get("description"),
     )

@@ -69,10 +69,27 @@ export default function TrainingTasksPage() {
     { title: '截止日期', dataIndex: 'due_at', width: 160, render: (v) => v ? new Date(v).toLocaleString('zh-CN') : '—' },
     { title: '创建时间', dataIndex: 'created_at', width: 160, render: (v) => new Date(v).toLocaleString('zh-CN') },
     {
-      title: '操作', width: 160, render: (_, r) => (
+      title: '操作', width: 220, render: (_, r) => (
         <Space>
           <Button size="small" onClick={() => navigate(`/training-tasks/${r.id}`)}>详情</Button>
           {r.status === 'draft' && <Button size="small" type="primary" onClick={() => handlePublish(r.id)}>发布</Button>}
+          {r.status === 'draft' && (
+            <Button size="small" danger onClick={() => {
+              Modal.confirm({
+                title: '确认删除此培训任务？',
+                content: '已发布的任务不可删除。',
+                onOk: async () => {
+                  try {
+                    await client.delete(`/training-tasks/${r.id}`)
+                    message.success('已删除')
+                    fetchData()
+                  } catch (e: any) {
+                    message.error(e?.response?.data?.message || '删除失败')
+                  }
+                },
+              })
+            }}>删除</Button>
+          )}
         </Space>
       ),
     },

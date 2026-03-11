@@ -50,4 +50,7 @@ export const documentsApi = {
 
   reparse: (id: string) =>
     client.post<{ code: string; data: { task_id: string } }>(`/documents/${id}/reparse`),
+
+  delete: (id: string) =>
+    client.delete<{ code: string; message: string }>(`/documents/${id}`),
 }

@@ -64,6 +64,39 @@ async def update_course(
 
 # ── 版本 ──────────────────────────────────────────────────────────────────────
 
+@router.delete("/{course_id}", response_model=dict, summary="删除课程")
+async def delete_course(
+    course_id: uuid.UUID,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import select, delete as sql_delete, func
+    from app.models.course import Course, CourseVersion, CourseChapter
+    from app.models.training import TrainingTask
+    from app.core.exceptions import NotFoundException, BusinessException
+
+    course = (await db.execute(select(Course).where(Course.id == course_id))).scalar_one_or_none()
+    if not course:
+        raise NotFoundException(code="COURSE_NOT_FOUND", message="课程不存在")
+    # check if any version is referenced by a training task
+    versions = (await db.execute(select(CourseVersion).where(CourseVersion.course_id == course_id))).scalars().all()
+    ver_ids = [v.id for v in versions]
+    if ver_ids:
+        ref_count = (await db.execute(
+            select(func.count()).select_from(TrainingTask)
+            .where(TrainingTask.course_version_id.in_(ver_ids))
+        )).scalar_one()
+        if ref_count > 0:
+            raise BusinessException(code="COURSE_IN_USE", message=f"该课程已被 {ref_count} 个培训任务引用，无法删除")
+        # delete chapters → versions
+        for vid in ver_ids:
+            await db.execute(sql_delete(CourseChapter).where(CourseChapter.course_version_id == vid))
+        await db.execute(sql_delete(CourseVersion).where(CourseVersion.course_id == course_id))
+    await db.delete(course)
+    await db.commit()
+    return success_response(message="课程已删除")
+
+
 @router.post("/{course_id}/versions", response_model=dict, summary="新建课程版本")
 async def create_version(
     course_id: uuid.UUID,

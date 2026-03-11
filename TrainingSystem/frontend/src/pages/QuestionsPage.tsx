@@ -122,6 +122,26 @@ export default function QuestionsPage() {
       title: '创建时间', dataIndex: 'created_at', width: 150,
       render: (v) => new Date(v).toLocaleString('zh-CN'),
     },
+    {
+      title: '操作', width: 80,
+      render: (_, row) => (
+        <Button size="small" danger onClick={() => {
+          Modal.confirm({
+            title: '确认删除此题目？',
+            content: '已被试卷引用的题目无法删除。',
+            onOk: async () => {
+              try {
+                await client.delete(`/questions/${row.id}`)
+                message.success('已删除')
+                fetchData()
+              } catch (e: any) {
+                message.error(e?.response?.data?.message || '删除失败')
+              }
+            },
+          })
+        }}>删除</Button>
+      ),
+    },
   ]
 
   return (

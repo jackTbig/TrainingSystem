@@ -80,6 +80,33 @@ async def archive_document(
     return success_response(data=doc.model_dump())
 
 
+@router.delete("/{doc_id}", response_model=dict, summary="删除文档（硬删除）")
+async def delete_document(
+    doc_id: uuid.UUID,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    import os
+    from sqlalchemy import delete as sql_delete
+    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    if not doc:
+        raise NotFoundException(code="DOC_NOT_FOUND", message="文档不存在")
+    versions = (await db.execute(
+        select(DocumentVersion).where(DocumentVersion.document_id == doc_id)
+    )).scalars().all()
+    for v in versions:
+        try:
+            if v.file_path and os.path.exists(v.file_path):
+                os.remove(v.file_path)
+        except Exception:
+            pass
+    # explicitly delete versions (DB CASCADE handles parse_tasks + chunks)
+    await db.execute(sql_delete(DocumentVersion).where(DocumentVersion.document_id == doc_id))
+    await db.delete(doc)
+    await db.commit()
+    return success_response(message="文档已删除")
+
+
 @router.get("/{doc_id}/chunks", response_model=dict, summary="文档解析结果（chunks）")
 async def list_document_chunks(
     doc_id: uuid.UUID,

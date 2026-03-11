@@ -23,7 +23,8 @@ class Document(UUIDMixin, TimestampMixin, Base):
 
     # 关系
     versions: Mapped[list["DocumentVersion"]] = relationship(
-        "DocumentVersion", back_populates="document", lazy="selectin"
+        "DocumentVersion", back_populates="document", lazy="selectin",
+        passive_deletes=True
     )
 
 
@@ -46,10 +47,12 @@ class DocumentVersion(UUIDMixin, Base):
     # 关系
     document: Mapped["Document"] = relationship("Document", back_populates="versions")
     parse_tasks: Mapped[list["DocumentParseTask"]] = relationship(
-        "DocumentParseTask", back_populates="document_version", lazy="selectin"
+        "DocumentParseTask", back_populates="document_version", lazy="selectin",
+        passive_deletes=True
     )
     chunks: Mapped[list["DocumentChunk"]] = relationship(
-        "DocumentChunk", back_populates="document_version", lazy="noload"
+        "DocumentChunk", back_populates="document_version", lazy="noload",
+        passive_deletes=True
     )
 
 

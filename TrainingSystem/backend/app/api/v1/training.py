@@ -140,6 +140,53 @@ async def remove_assignment(
     return success_response(message="已移除")
 
 
+@router.put("/{task_id}", response_model=dict, summary="更新培训任务")
+async def update_training_task(
+    task_id: uuid.UUID,
+    title: str | None = Body(None),
+    description: str | None = Body(None),
+    due_at: datetime | None = Body(None),
+    allow_makeup_exam: bool | None = Body(None),
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(TrainingTask).where(TrainingTask.id == task_id))
+    task = result.scalar_one_or_none()
+    if not task:
+        raise NotFoundException(code="TASK_NOT_FOUND", message="培训任务不存在")
+    if title is not None: task.title = title
+    if description is not None: task.description = description
+    if due_at is not None: task.due_at = due_at
+    if allow_makeup_exam is not None: task.allow_makeup_exam = allow_makeup_exam
+    await db.commit()
+    return success_response(data={"id": str(task.id), "title": task.title, "status": task.status})
+
+
+@router.delete("/{task_id}", response_model=dict, summary="删除培训任务")
+async def delete_training_task(
+    task_id: uuid.UUID,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import delete as sql_delete
+    result = await db.execute(select(TrainingTask).where(TrainingTask.id == task_id))
+    task = result.scalar_one_or_none()
+    if not task:
+        raise NotFoundException(code="TASK_NOT_FOUND", message="培训任务不存在")
+    if task.status == "published":
+        raise BusinessException(code="TASK_PUBLISHED", message="已发布的培训任务不可删除，请先归档")
+    # cascade: delete study_progress → assignments → task
+    asgn_ids = [r.id for r in (await db.execute(
+        select(TrainingAssignment.id).where(TrainingAssignment.training_task_id == task_id)
+    )).scalars()]
+    if asgn_ids:
+        await db.execute(sql_delete(StudyProgress).where(StudyProgress.training_assignment_id.in_(asgn_ids)))
+        await db.execute(sql_delete(TrainingAssignment).where(TrainingAssignment.training_task_id == task_id))
+    await db.delete(task)
+    await db.commit()
+    return success_response(message="培训任务已删除")
+
+
 @router.post("/{task_id}/publish", response_model=dict, summary="发布培训任务")
 async def publish_task(
     task_id: uuid.UUID,
