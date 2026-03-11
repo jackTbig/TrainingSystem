@@ -13,10 +13,11 @@ import { RootState } from '@/store'
 
 const { Header, Sider, Content } = Layout
 
-const menuItems = [
+// admin: true means only visible to users with 'admin' role
+const allMenuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '首页' },
   {
-    key: 'system', icon: <UserOutlined />, label: '系统管理',
+    key: 'system', icon: <UserOutlined />, label: '系统管理', admin: true,
     children: [
       { key: '/system/users', icon: <UserOutlined />, label: '用户管理' },
       { key: '/system/roles', icon: <TeamOutlined />, label: '角色权限' },
@@ -24,7 +25,7 @@ const menuItems = [
     ],
   },
   {
-    key: 'knowledge', icon: <FileTextOutlined />, label: '知识库',
+    key: 'knowledge', icon: <FileTextOutlined />, label: '知识库', admin: true,
     children: [
       { key: '/documents', icon: <FileTextOutlined />, label: '文档管理' },
       { key: '/knowledge-points/candidates', icon: <BulbOutlined />, label: '候选知识点' },
@@ -32,7 +33,7 @@ const menuItems = [
     ],
   },
   {
-    key: 'content', icon: <BookOutlined />, label: '内容生产',
+    key: 'content', icon: <BookOutlined />, label: '内容生产', admin: true,
     children: [
       { key: '/courses', icon: <BookOutlined />, label: '课程管理' },
       { key: '/questions', icon: <QuestionCircleOutlined />, label: '题库管理' },
@@ -43,16 +44,16 @@ const menuItems = [
   {
     key: 'training', icon: <ExperimentOutlined />, label: '培训考试',
     children: [
-      { key: '/training-tasks', icon: <ExperimentOutlined />, label: '培训任务（管理）' },
-      { key: '/exams', icon: <FileSearchOutlined />, label: '考试管理' },
+      { key: '/training-tasks', icon: <ExperimentOutlined />, label: '培训任务（管理）', admin: true },
+      { key: '/exams', icon: <FileSearchOutlined />, label: '考试管理', admin: true },
       { key: '/my-training', icon: <BookOutlined />, label: '我的培训' },
       { key: '/my-exams', icon: <TrophyOutlined />, label: '我的考试' },
-      { key: '/statistics', icon: <DashboardOutlined />, label: '培训统计' },
-      { key: '/scores', icon: <TrophyOutlined />, label: '成绩查询' },
+      { key: '/statistics', icon: <DashboardOutlined />, label: '培训统计', admin: true },
+      { key: '/scores', icon: <TrophyOutlined />, label: '成绩查询', admin: true },
     ],
   },
   {
-    key: 'system2', icon: <ThunderboltOutlined />, label: '系统审计',
+    key: 'system2', icon: <ThunderboltOutlined />, label: '系统审计', admin: true,
     children: [
       { key: '/async-jobs', icon: <ThunderboltOutlined />, label: '异步任务' },
       { key: '/audit-logs', icon: <FileSearchOutlined />, label: '审计日志' },
@@ -60,12 +61,25 @@ const menuItems = [
   },
 ]
 
+function buildMenu(isAdmin: boolean) {
+  return allMenuItems
+    .filter((item) => isAdmin || !(item as any).admin)
+    .map((item) => {
+      if (!('children' in item)) return item
+      const children = item.children.filter((c) => isAdmin || !(c as any).admin)
+      return { ...item, children }
+    })
+    .filter((item) => !('children' in item) || (item as any).children.length > 0)
+}
+
 export default function MainLayout() {
   const [collapsed, setCollapsed] = useState(false)
   const navigate = useNavigate()
   const location = useLocation()
   const dispatch = useDispatch()
   const user = useSelector((state: RootState) => state.auth.user)
+  const isAdmin = user?.roles?.includes('admin') ?? false
+  const menuItems = buildMenu(isAdmin)
 
   const handleLogout = () => {
     dispatch(logout())
