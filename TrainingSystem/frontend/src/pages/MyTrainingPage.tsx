@@ -65,7 +65,7 @@ export default function MyTrainingPage() {
               )}
               <Space>
                 {task.course_version_id && (
-                  <Button size="small" icon={<BookOutlined />} onClick={() => navigate(`/study/${task.course_version_id}`)}>
+                  <Button size="small" icon={<BookOutlined />} onClick={() => navigate(`/study/${task.course_version_id}?assignmentId=${task.assignment_id}`)}>
                     去学习
                   </Button>
                 )}

@@ -116,3 +116,38 @@ async def review_action(
 
     await db.commit()
     return success_response(data={"id": str(task.id), "status": task.status}, message=f"审核操作已完成：{action}")
+
+
+@router.post("/batch-action", response_model=dict, summary="批量审核操作")
+async def batch_review_action(
+    task_ids: list[uuid.UUID] = Body(...),
+    action: str = Body(...),
+    comment: str = Body(""),
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    ACTION_MAP = {"approve": "approved", "reject": "rejected"}
+    if action not in ACTION_MAP:
+        raise BusinessException(code="INVALID_ACTION", message=f"无效操作：{action}")
+
+    success_count = 0
+    for tid in task_ids:
+        result = await db.execute(
+            select(ReviewTask).options(selectinload(ReviewTask.comments)).where(ReviewTask.id == tid)
+        )
+        task = result.scalar_one_or_none()
+        if not task or task.status not in ("pending", "in_review"):
+            continue
+        task.status = ACTION_MAP[action]
+        task.assigned_reviewer_id = uuid.UUID(user_id)
+        if comment:
+            rc = ReviewComment(
+                review_task_id=task.id, reviewer_id=uuid.UUID(user_id),
+                comment_type="approval",
+                content=comment, action_suggestion=action,
+            )
+            db.add(rc)
+        success_count += 1
+
+    await db.commit()
+    return success_response(data={"success_count": success_count}, message=f"批量操作完成，处理 {success_count} 条")

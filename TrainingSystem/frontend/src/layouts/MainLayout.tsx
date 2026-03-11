@@ -47,6 +47,8 @@ const menuItems = [
       { key: '/exams', icon: <FileSearchOutlined />, label: '考试管理' },
       { key: '/my-training', icon: <BookOutlined />, label: '我的培训' },
       { key: '/my-exams', icon: <TrophyOutlined />, label: '我的考试' },
+      { key: '/statistics', icon: <DashboardOutlined />, label: '培训统计' },
+      { key: '/scores', icon: <TrophyOutlined />, label: '成绩查询' },
     ],
   },
   {

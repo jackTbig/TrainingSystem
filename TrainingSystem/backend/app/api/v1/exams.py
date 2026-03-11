@@ -459,3 +459,42 @@ async def get_attempt_result(
     db: AsyncSession = Depends(get_db),
 ):
     return await get_attempt(attempt_id, user_id, db)
+
+
+@router.get("/all-attempts", response_model=dict, summary="管理员：所有考试记录")
+async def list_all_attempts(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    exam_id: uuid.UUID | None = Query(None),
+    pass_result: bool | None = Query(None),
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.user import User
+
+    q = select(ExamAttempt).where(ExamAttempt.status == "submitted")
+    if exam_id:
+        q = q.where(ExamAttempt.exam_id == exam_id)
+    if pass_result is not None:
+        q = q.where(ExamAttempt.pass_result == pass_result)
+
+    total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
+    q = q.order_by(ExamAttempt.submitted_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    attempts = (await db.execute(q)).scalars().all()
+
+    items = []
+    for a in attempts:
+        user = (await db.execute(select(User).where(User.id == a.user_id))).scalar_one_or_none()
+        exam = (await db.execute(select(Exam).where(Exam.id == a.exam_id))).scalar_one_or_none()
+        items.append({
+            "id": str(a.id),
+            "exam_id": str(a.exam_id),
+            "exam_title": exam.title if exam else "",
+            "user_id": str(a.user_id),
+            "username": user.username if user else "",
+            "real_name": user.real_name if user else "",
+            "total_score": a.total_score,
+            "pass_result": a.pass_result,
+            "submitted_at": a.submitted_at.isoformat() if a.submitted_at else None,
+        })
+    return paginated_response(items=items, total=total, page=page, page_size=page_size)

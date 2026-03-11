@@ -4,12 +4,25 @@ import {
   Button, Card, Collapse, Form, Input, InputNumber, Modal,
   Space, Tag, Typography, message,
 } from 'antd'
-import { ArrowLeftOutlined, PlusOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, PlusOutlined, RollbackOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import MDEditor from '@uiw/react-md-editor'
 import type { Course, CourseVersion } from '@/api/courses'
 import { coursesApi } from '@/api/courses'
 import client from '@/api/client'
 
-const { Title, Text, Paragraph } = Typography
+const { Title, Text } = Typography
+
+// Ant Design Form.Item compatible wrapper for MDEditor
+function MDEditorField({ value, onChange }: { value?: string; onChange?: (v: string) => void }) {
+  return (
+    <MDEditor
+      value={value ?? ''}
+      onChange={(v) => onChange?.(v ?? '')}
+      height={280}
+      data-color-mode="light"
+    />
+  )
+}
 
 const VERSION_STATUS_COLOR: Record<string, string> = {
   draft: 'default', pending_review: 'processing', in_review: 'blue',
@@ -107,6 +120,18 @@ export default function CourseDetailPage() {
     load()
   }
 
+  const handleRollback = (v: CourseVersion) => {
+    Modal.confirm({
+      title: `回滚到 v${v.version_no}？`,
+      content: '当前已发布版本将被归档，此版本将变为发布状态。',
+      onOk: async () => {
+        await client.post(`/courses/versions/${v.id}/rollback`)
+        message.success('版本回滚成功')
+        load()
+      },
+    })
+  }
+
   if (loading) return <div style={{ padding: 24 }}>加载中...</div>
   if (!course) return <div>课程不存在</div>
 
@@ -125,14 +150,22 @@ export default function CourseDetailPage() {
         <Text type="secondary">版本：</Text>
         <Space wrap style={{ marginLeft: 8 }}>
           {course.versions.map((v) => (
-            <Tag
-              key={v.id}
-              color={activeVersion?.id === v.id ? 'blue' : 'default'}
-              style={{ cursor: 'pointer' }}
-              onClick={() => setActiveVersion(v)}
-            >
-              v{v.version_no} <Tag color={VERSION_STATUS_COLOR[v.status]} style={{ margin: 0 }}>{VERSION_STATUS_LABEL[v.status]}</Tag>
-            </Tag>
+            <Space key={v.id} size={4}>
+              <Tag
+                color={activeVersion?.id === v.id ? 'blue' : 'default'}
+                style={{ cursor: 'pointer' }}
+                onClick={() => setActiveVersion(v)}
+              >
+                v{v.version_no} <Tag color={VERSION_STATUS_COLOR[v.status]} style={{ margin: 0 }}>{VERSION_STATUS_LABEL[v.status]}</Tag>
+              </Tag>
+              {(v.status === 'archived' || v.status === 'rejected') && (
+                <Button
+                  size="small" icon={<RollbackOutlined />}
+                  onClick={() => handleRollback(v)}
+                  style={{ fontSize: 11 }}
+                >回滚</Button>
+              )}
+            </Space>
           ))}
           <Button size="small" icon={<PlusOutlined />} onClick={() => setAddVerOpen(true)}>新建版本</Button>
           <Button size="small" icon={<ThunderboltOutlined />} onClick={() => setAiGenOpen(true)}>AI 生成课程</Button>
@@ -163,7 +196,7 @@ export default function CourseDetailPage() {
               items={activeVersion.chapters.map((ch) => ({
                 key: ch.id,
                 label: <Text strong>第 {ch.chapter_no} 章：{ch.title}{ch.estimated_duration_minutes ? `（约 ${ch.estimated_duration_minutes} 分钟）` : ''}</Text>,
-                children: <Paragraph style={{ whiteSpace: 'pre-wrap' }}>{ch.content}</Paragraph>,
+                children: <MDEditor.Markdown source={ch.content} style={{ padding: 8 }} />,
               }))}
             />
           )}
@@ -223,8 +256,8 @@ export default function CourseDetailPage() {
           <Form.Item label="章节标题" name="title" rules={[{ required: true }]}>
             <Input maxLength={255} showCount />
           </Form.Item>
-          <Form.Item label="内容" name="content" rules={[{ required: true }]}>
-            <Input.TextArea rows={8} placeholder="输入章节正文内容…" />
+          <Form.Item label="内容" name="content" rules={[{ required: true, message: '请输入章节内容' }]}>
+            <MDEditorField />
           </Form.Item>
           <Form.Item label="预计学习时长（分钟）" name="estimated_duration_minutes">
             <InputNumber min={1} style={{ width: '100%' }} />

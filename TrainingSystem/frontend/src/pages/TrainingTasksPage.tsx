@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Button, Form, Input, Modal, Space, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
@@ -16,6 +17,7 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 export default function TrainingTasksPage() {
+  const navigate = useNavigate()
   const [rows, setRows] = useState<TaskRow[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -66,7 +68,14 @@ export default function TrainingTasksPage() {
     { title: '状态', dataIndex: 'status', width: 90, render: (s) => <Tag color={STATUS_COLOR[s]}>{STATUS_LABEL[s] ?? s}</Tag> },
     { title: '截止日期', dataIndex: 'due_at', width: 160, render: (v) => v ? new Date(v).toLocaleString('zh-CN') : '—' },
     { title: '创建时间', dataIndex: 'created_at', width: 160, render: (v) => new Date(v).toLocaleString('zh-CN') },
-    { title: '操作', width: 100, render: (_, r) => r.status === 'draft' ? <Button size="small" type="primary" onClick={() => handlePublish(r.id)}>发布</Button> : null },
+    {
+      title: '操作', width: 160, render: (_, r) => (
+        <Space>
+          <Button size="small" onClick={() => navigate(`/training-tasks/${r.id}`)}>详情</Button>
+          {r.status === 'draft' && <Button size="small" type="primary" onClick={() => handlePublish(r.id)}>发布</Button>}
+        </Space>
+      ),
+    },
   ]
 
   return (

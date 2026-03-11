@@ -1,10 +1,13 @@
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user_id, get_db
+from app.core.exceptions import NotFoundException
 from app.core.response import paginated_response, success_response
+from app.models.document import Document, DocumentChunk, DocumentVersion
 from app.schemas.document import DocumentUpdate
 from app.services.document import DocumentService
 
@@ -75,6 +78,46 @@ async def archive_document(
     svc = DocumentService(db)
     doc = await svc.archive_document(doc_id)
     return success_response(data=doc.model_dump())
+
+
+@router.get("/{doc_id}/chunks", response_model=dict, summary="文档解析结果（chunks）")
+async def list_document_chunks(
+    doc_id: uuid.UUID,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    if not doc:
+        raise NotFoundException(code="DOC_NOT_FOUND", message="文档不存在")
+    if not doc.current_version_id:
+        return paginated_response(items=[], total=0, page=page, page_size=page_size)
+    total_q = await db.execute(
+        select(DocumentChunk).where(DocumentChunk.document_version_id == doc.current_version_id)
+    )
+    all_chunks = total_q.scalars().all()
+    total = len(all_chunks)
+    q = (
+        select(DocumentChunk)
+        .where(DocumentChunk.document_version_id == doc.current_version_id)
+        .order_by(DocumentChunk.chunk_index)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    chunks = (await db.execute(q)).scalars().all()
+    return paginated_response(
+        items=[{
+            "id": str(c.id),
+            "chunk_index": c.chunk_index,
+            "chapter_title": c.chapter_title,
+            "content": c.content,
+            "token_count": c.token_count,
+            "embedding_status": c.embedding_status,
+            "created_at": c.created_at.isoformat(),
+        } for c in chunks],
+        total=total, page=page, page_size=page_size,
+    )
 
 
 @router.post("/{doc_id}/reparse", response_model=dict, summary="重新解析")

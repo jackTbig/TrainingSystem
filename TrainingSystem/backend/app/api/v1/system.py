@@ -1,12 +1,78 @@
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import desc, select
+from sqlalchemy import desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user_id, get_db
-from app.core.response import paginated_response
+from app.core.response import paginated_response, success_response
 from app.models.audit import AsyncJob, AuditLog
 
 router = APIRouter()
+
+
+@router.get("/statistics", response_model=dict, summary="系统统计数据")
+async def get_statistics(
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.document import Document
+    from app.models.training import TrainingAssignment, TrainingTask
+    from app.models.exam import ExamAttempt
+    from app.models.user import User
+
+    total_users = (await db.execute(select(func.count()).select_from(User))).scalar_one()
+    total_docs = (await db.execute(select(func.count()).select_from(Document))).scalar_one()
+    total_tasks = (await db.execute(select(func.count()).select_from(TrainingTask))).scalar_one()
+    total_assignments = (await db.execute(select(func.count()).select_from(TrainingAssignment))).scalar_one()
+    completed_assignments = (await db.execute(
+        select(func.count()).select_from(TrainingAssignment)
+        .where(TrainingAssignment.assignment_status.in_(["study_completed", "exam_completed"]))
+    )).scalar_one()
+    total_attempts = (await db.execute(select(func.count()).select_from(ExamAttempt))).scalar_one()
+    passed_attempts = (await db.execute(
+        select(func.count()).select_from(ExamAttempt)
+        .where(ExamAttempt.pass_result == True)  # noqa: E712
+    )).scalar_one()
+
+    # per-task stats
+    tasks = (await db.execute(
+        select(TrainingTask).order_by(TrainingTask.created_at.desc()).limit(10)
+    )).scalars().all()
+    task_stats = []
+    for t in tasks:
+        total_a = (await db.execute(
+            select(func.count()).select_from(TrainingAssignment)
+            .where(TrainingAssignment.training_task_id == t.id)
+        )).scalar_one()
+        done_a = (await db.execute(
+            select(func.count()).select_from(TrainingAssignment)
+            .where(
+                TrainingAssignment.training_task_id == t.id,
+                TrainingAssignment.assignment_status.in_(["study_completed", "exam_completed"]),
+            )
+        )).scalar_one()
+        task_stats.append({
+            "id": str(t.id),
+            "title": t.title,
+            "status": t.status,
+            "total_assigned": total_a,
+            "completed_count": done_a,
+            "completion_rate": round(done_a / total_a * 100) if total_a > 0 else 0,
+        })
+
+    return success_response(data={
+        "overview": {
+            "total_users": total_users,
+            "total_documents": total_docs,
+            "total_training_tasks": total_tasks,
+            "total_assignments": total_assignments,
+            "completed_assignments": completed_assignments,
+            "completion_rate": round(completed_assignments / total_assignments * 100) if total_assignments > 0 else 0,
+            "total_exam_attempts": total_attempts,
+            "passed_exam_attempts": passed_attempts,
+            "exam_pass_rate": round(passed_attempts / total_attempts * 100) if total_attempts > 0 else 0,
+        },
+        "task_stats": task_stats,
+    })
 
 
 @router.get("/audit-logs", response_model=dict, summary="审计日志")

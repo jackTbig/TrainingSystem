@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import {
   Button, Card, Col, Layout, Menu, Progress, Row, Space, Tag, Typography,
 } from 'antd'
 import { ArrowLeftOutlined, CheckOutlined, ReadOutlined } from '@ant-design/icons'
+import MDEditor from '@uiw/react-md-editor'
 import client from '@/api/client'
 
-const { Title, Text, Paragraph } = Typography
+const { Title, Text } = Typography
 const { Sider, Content } = Layout
 
 interface Chapter {
@@ -18,11 +19,14 @@ interface CourseVersionDetail {
 
 export default function CourseStudyPage() {
   const { versionId } = useParams<{ versionId: string }>()
+  const [searchParams] = useSearchParams()
+  const assignmentId = searchParams.get('assignmentId')
   const navigate = useNavigate()
   const [version, setVersion] = useState<CourseVersionDetail | null>(null)
   const [currentChap, setCurrentChap] = useState(0)
   const [read, setRead] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(true)
+  const reportedProgress = useRef(0)
 
   useEffect(() => {
     if (!versionId) return
@@ -38,10 +42,24 @@ export default function CourseStudyPage() {
   const chap = version.chapters[currentChap]
   const progress = version.chapters.length > 0 ? Math.round(read.size / version.chapters.length * 100) : 0
 
+  const reportProgress = async (readSet: Set<number>, totalChapters: number) => {
+    if (!assignmentId) return
+    const pct = totalChapters > 0 ? Math.round(readSet.size / totalChapters * 100) : 0
+    if (pct <= reportedProgress.current) return
+    reportedProgress.current = pct
+    try {
+      await client.post(`/training-tasks/assignments/${assignmentId}/progress`, {
+        progress_percent: pct,
+        last_position: { chapter_index: currentChap },
+      })
+    } catch { /* silent */ }
+  }
+
   const markRead = () => {
     setRead((prev) => {
       const next = new Set(prev)
       next.add(currentChap)
+      reportProgress(next, version.chapters.length)
       return next
     })
     if (currentChap < version.chapters.length - 1) {
@@ -99,11 +117,9 @@ export default function CourseStudyPage() {
                   <Title level={3} style={{ marginTop: 12 }}>{chap.title}</Title>
                 </div>
 
-                <Paragraph
-                  style={{ fontSize: 15, lineHeight: 1.9, whiteSpace: 'pre-wrap', color: '#333' }}
-                >
-                  {chap.content}
-                </Paragraph>
+                <div data-color-mode="light">
+                  <MDEditor.Markdown source={chap.content} style={{ fontSize: 15, lineHeight: 1.9, padding: 8 }} />
+                </div>
 
                 <div style={{ marginTop: 32, display: 'flex', justifyContent: 'space-between' }}>
                   <Button

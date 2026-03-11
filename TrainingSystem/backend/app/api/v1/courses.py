@@ -99,6 +99,37 @@ async def update_version_status(
     return success_response(data=ver.model_dump())
 
 
+@router.post("/versions/{version_id}/rollback", response_model=dict, summary="版本回滚（将此版本设为发布版）")
+async def rollback_version(
+    version_id: uuid.UUID,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    from sqlalchemy import select
+    from app.models.course import CourseVersion
+    from app.core.exceptions import NotFoundException, BusinessException
+
+    target = (await db.execute(select(CourseVersion).where(CourseVersion.id == version_id))).scalar_one_or_none()
+    if not target:
+        raise NotFoundException(code="VERSION_NOT_FOUND", message="版本不存在")
+    if target.status == "published":
+        raise BusinessException(code="ALREADY_PUBLISHED", message="该版本已是发布状态")
+
+    # archive current published version of same course
+    published_versions = (await db.execute(
+        select(CourseVersion).where(
+            CourseVersion.course_id == target.course_id,
+            CourseVersion.status == "published",
+        )
+    )).scalars().all()
+    for v in published_versions:
+        v.status = "archived"
+
+    target.status = "published"
+    await db.commit()
+    return success_response(data={"id": str(target.id), "status": target.status}, message="版本回滚成功")
+
+
 # ── 章节 ──────────────────────────────────────────────────────────────────────
 
 @router.post("/versions/{version_id}/chapters", response_model=dict, summary="添加章节")

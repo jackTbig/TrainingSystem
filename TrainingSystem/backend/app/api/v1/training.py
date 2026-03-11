@@ -57,6 +57,89 @@ async def create_training_task(
     return success_response(data={"id": str(task.id), "title": task.title, "status": task.status})
 
 
+@router.get("/{task_id}", response_model=dict, summary="培训任务详情（含分配列表和进度）")
+async def get_training_task(
+    task_id: uuid.UUID,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.user import User
+    from app.models.exam import ExamAttempt
+
+    result = await db.execute(select(TrainingTask).where(TrainingTask.id == task_id))
+    task = result.scalar_one_or_none()
+    if not task:
+        raise NotFoundException(code="TASK_NOT_FOUND", message="培训任务不存在")
+
+    # 所有分配记录
+    asgn_rows = list((await db.execute(
+        select(TrainingAssignment).where(TrainingAssignment.training_task_id == task_id)
+    )).scalars())
+
+    assignments = []
+    for asgn in asgn_rows:
+        user = (await db.execute(select(User).where(User.id == asgn.user_id))).scalar_one_or_none()
+        prog = (await db.execute(
+            select(StudyProgress).where(StudyProgress.training_assignment_id == asgn.id)
+        )).scalar_one_or_none()
+        # 最新考试尝试成绩
+        attempt = None
+        if task.exam_id:
+            attempt = (await db.execute(
+                select(ExamAttempt).where(
+                    ExamAttempt.exam_id == task.exam_id,
+                    ExamAttempt.user_id == asgn.user_id,
+                ).order_by(ExamAttempt.submitted_at.desc().nullslast())
+            )).scalars().first()
+        assignments.append({
+            "assignment_id": str(asgn.id),
+            "user_id": str(asgn.user_id),
+            "username": user.username if user else "",
+            "real_name": user.real_name if user else "",
+            "assignment_status": asgn.assignment_status,
+            "progress_percent": prog.progress_percent if prog else 0,
+            "completed": prog.completed if prog else False,
+            "study_completed_at": asgn.study_completed_at.isoformat() if asgn.study_completed_at else None,
+            "exam_score": attempt.total_score if attempt else None,
+            "exam_passed": attempt.pass_result if attempt else None,
+        })
+
+    return success_response(data={
+        "id": str(task.id),
+        "title": task.title,
+        "description": task.description,
+        "status": task.status,
+        "course_version_id": str(task.course_version_id) if task.course_version_id else None,
+        "exam_id": str(task.exam_id) if task.exam_id else None,
+        "due_at": task.due_at.isoformat() if task.due_at else None,
+        "allow_makeup_exam": task.allow_makeup_exam,
+        "created_at": task.created_at.isoformat(),
+        "total_assigned": len(asgn_rows),
+        "completed_count": sum(1 for a in assignments if a["completed"]),
+        "assignments": assignments,
+    })
+
+
+@router.delete("/{task_id}/assignments/{user_id}", response_model=dict, summary="移除分配学员")
+async def remove_assignment(
+    task_id: uuid.UUID,
+    user_id: uuid.UUID,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(
+        select(TrainingAssignment).where(
+            TrainingAssignment.training_task_id == task_id,
+            TrainingAssignment.user_id == user_id,
+        )
+    )
+    asgn = result.scalar_one_or_none()
+    if asgn:
+        await db.delete(asgn)
+        await db.commit()
+    return success_response(message="已移除")
+
+
 @router.post("/{task_id}/publish", response_model=dict, summary="发布培训任务")
 async def publish_task(
     task_id: uuid.UUID,

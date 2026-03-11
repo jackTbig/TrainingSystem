@@ -13,6 +13,10 @@ import CourseStudyPage from '@/pages/CourseStudyPage'
 import QuestionsPage from '@/pages/QuestionsPage'
 import ExamsPage from '@/pages/ExamsPage'
 import TrainingTasksPage from '@/pages/TrainingTasksPage'
+import TrainingTaskDetailPage from '@/pages/TrainingTaskDetailPage'
+import DocumentDetailPage from '@/pages/DocumentDetailPage'
+import StatisticsPage from '@/pages/StatisticsPage'
+import ScoresPage from '@/pages/ScoresPage'
 import ReviewsPage from '@/pages/ReviewsPage'
 import MyExamsPage from '@/pages/MyExamsPage'
 import MyTrainingPage from '@/pages/MyTrainingPage'
@@ -64,6 +68,7 @@ export const router = createBrowserRouter([
       { path: 'system/roles', element: <RolesPage /> },
       { path: 'system/departments', element: <DepartmentsPage /> },
       { path: 'documents', element: <DocumentsPage /> },
+      { path: 'documents/:docId', element: <DocumentDetailPage /> },
       { path: 'knowledge-points/candidates', element: <KnowledgeCandidatesPage /> },
       { path: 'knowledge-points', element: <KnowledgePointsPage /> },
       { path: 'courses', element: <CoursesPage /> },
@@ -72,6 +77,9 @@ export const router = createBrowserRouter([
       { path: 'reviews', element: <ReviewsPage /> },
       { path: 'publish-records', element: <PublishRecordsPage /> },
       { path: 'training-tasks', element: <TrainingTasksPage /> },
+      { path: 'training-tasks/:taskId', element: <TrainingTaskDetailPage /> },
+      { path: 'statistics', element: <StatisticsPage /> },
+      { path: 'scores', element: <ScoresPage /> },
       { path: 'exams', element: <ExamsPage /> },
       { path: 'my-exams', element: <MyExamsPage /> },
       { path: 'my-training', element: <MyTrainingPage /> },

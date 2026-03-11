@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
   Badge, Button, Form, Input, Modal, Space, Table, Tag, Tooltip, Typography, Upload, message,
 } from 'antd'
@@ -22,6 +23,7 @@ const STATUS_MAP: Record<string, { color: string; label: string }> = {
 
 
 export default function DocumentsPage() {
+  const navigate = useNavigate()
   const [docs, setDocs] = useState<DocumentListItem[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -108,9 +110,12 @@ export default function DocumentsPage() {
     },
     {
       title: '操作',
-      width: 160,
+      width: 220,
       render: (_, row) => (
         <Space>
+          {row.status === 'parsed' && (
+            <Button size="small" onClick={() => navigate(`/documents/${row.id}`)}>解析结果</Button>
+          )}
           {(row.status === 'failed' || row.status === 'uploaded') && (
             <Tooltip title="重新解析">
               <Button size="small" icon={<SyncOutlined />} onClick={() => handleReparse(row.id)} />
