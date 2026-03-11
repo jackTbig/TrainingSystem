@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import {
-  Button, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
+  Button, Checkbox, Drawer, Form, Input, Modal, Popconfirm, Select, Space, Table, Tag, Typography, message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { KeyOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import { KeyOutlined, PlusOutlined, ReloadOutlined, TeamOutlined } from '@ant-design/icons'
 import client from '@/api/client'
 
 const { Title } = Typography
@@ -11,7 +11,10 @@ const { Title } = Typography
 interface UserRow {
   id: string; username: string; real_name: string; email: string
   phone: string | null; status: string; created_at: string
+  roles?: { id: string; name: string; code: string }[]
 }
+
+interface RoleOption { id: string; name: string; code: string }
 
 const STATUS_COLOR: Record<string, string> = { active: 'success', inactive: 'default', locked: 'error' }
 const STATUS_LABEL: Record<string, string> = { active: '正常', inactive: '停用', locked: '锁定' }
@@ -23,8 +26,11 @@ export default function UsersPage() {
   const [loading, setLoading] = useState(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
+  const [roleDrawerOpen, setRoleDrawerOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [selectedUser, setSelectedUser] = useState<UserRow | null>(null)
+  const [allRoles, setAllRoles] = useState<RoleOption[]>([])
+  const [checkedRoleIds, setCheckedRoleIds] = useState<string[]>([])
   const [form] = Form.useForm()
   const [resetForm] = Form.useForm()
 
@@ -39,7 +45,12 @@ export default function UsersPage() {
     }
   }
 
-  useEffect(() => { fetchData() }, [page])
+  const fetchRoles = async () => {
+    const res = await client.get('/roles', { params: { page: 1, page_size: 100 } })
+    setAllRoles(res.data.data.items)
+  }
+
+  useEffect(() => { fetchData(); fetchRoles() }, [page])
 
   const handleCreate = async (values: Record<string, string>) => {
     setSaving(true)
@@ -79,6 +90,28 @@ export default function UsersPage() {
     }
   }
 
+  const openRoleDrawer = async (user: UserRow) => {
+    setSelectedUser(user)
+    // fetch user detail to get current roles
+    const res = await client.get(`/users/${user.id}`)
+    const currentRoles: { id: string }[] = res.data.data.roles ?? []
+    setCheckedRoleIds(currentRoles.map((r) => r.id))
+    setRoleDrawerOpen(true)
+  }
+
+  const handleSaveRoles = async () => {
+    if (!selectedUser) return
+    setSaving(true)
+    try {
+      await client.put(`/users/${selectedUser.id}/roles`, { role_ids: checkedRoleIds })
+      message.success('角色已保存')
+      setRoleDrawerOpen(false)
+      fetchData()
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const columns: ColumnsType<UserRow> = [
     { title: '用户名', dataIndex: 'username', width: 120 },
     { title: '姓名', dataIndex: 'real_name', width: 100 },
@@ -93,9 +126,13 @@ export default function UsersPage() {
       render: (v) => new Date(v).toLocaleString('zh-CN'),
     },
     {
-      title: '操作', width: 130,
+      title: '操作', width: 200,
       render: (_, row) => (
         <Space size="small">
+          <Button
+            size="small" icon={<TeamOutlined />}
+            onClick={() => openRoleDrawer(row)}
+          >分配角色</Button>
           <Button
             size="small" icon={<KeyOutlined />}
             onClick={() => { setSelectedUser(row); setResetOpen(true) }}
@@ -166,6 +203,32 @@ export default function UsersPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* 分配角色 */}
+      <Drawer
+        title={`分配角色 — ${selectedUser?.real_name}`}
+        open={roleDrawerOpen}
+        onClose={() => setRoleDrawerOpen(false)}
+        width={360}
+        extra={
+          <Button type="primary" loading={saving} onClick={handleSaveRoles}>保存</Button>
+        }
+      >
+        <div style={{ fontSize: 13, color: '#666', marginBottom: 16 }}>勾选该用户拥有的角色：</div>
+        <Checkbox.Group
+          value={checkedRoleIds}
+          onChange={(vals) => setCheckedRoleIds(vals as string[])}
+          style={{ display: 'flex', flexDirection: 'column', gap: 12 }}
+        >
+          {allRoles.map((r) => (
+            <Checkbox key={r.id} value={r.id} style={{ marginLeft: 0 }}>
+              <span style={{ fontWeight: 500 }}>{r.name}</span>
+              <span style={{ color: '#999', fontSize: 12, marginLeft: 6 }}>({r.code})</span>
+            </Checkbox>
+          ))}
+        </Checkbox.Group>
+        {allRoles.length === 0 && <div style={{ color: '#999', textAlign: 'center', paddingTop: 40 }}>暂无角色，请先创建角色</div>}
+      </Drawer>
     </div>
   )
 }

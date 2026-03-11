@@ -108,8 +108,35 @@ export default function ExamsPage() {
     Modal.confirm({
       title: '确认发布考试？', content: '发布后学员可参加考试。',
       onOk: async () => {
-        await client.post(`/exams/${id}/publish`)
-        message.success('已发布')
+        try {
+          await client.post(`/exams/${id}/publish`)
+          message.success('已发布')
+          fetchData()
+        } catch (e: any) {
+          message.error(e?.response?.data?.message || '发布失败')
+        }
+      },
+    })
+  }
+
+  const handleAssignPaper = (row: ExamRow) => {
+    let selectedPaperId = row.paper_id || ''
+    Modal.confirm({
+      title: `为「${row.title}」关联试卷`,
+      content: (
+        <Select
+          defaultValue={row.paper_id || undefined}
+          style={{ width: '100%', marginTop: 12 }}
+          placeholder="选择试卷"
+          options={papers.map((p) => ({ value: p.id, label: p.title }))}
+          onChange={(v) => { selectedPaperId = v }}
+        />
+      ),
+      okText: '确认关联',
+      onOk: async () => {
+        if (!selectedPaperId) { message.warning('请选择试卷'); return Promise.reject() }
+        await client.patch(`/exams/${row.id}/paper`, { paper_id: selectedPaperId })
+        message.success('试卷已关联')
         fetchData()
       },
     })
@@ -131,7 +158,7 @@ export default function ExamsPage() {
       render: (s) => <Tag color={STATUS_COLOR[s]}>{STATUS_LABEL[s] ?? s}</Tag>,
     },
     {
-      title: '操作', width: 160,
+      title: '操作', width: 200,
       render: (_, r) => (
         <Space size={4}>
           {r.status === 'draft' && (
@@ -140,6 +167,12 @@ export default function ExamsPage() {
               <Button size="small" type="primary" onClick={() => handlePublish(r.id)}>发布</Button>
               <Button size="small" danger onClick={() => handleDelete(r.id)}>删除</Button>
             </>
+          )}
+          {r.status === 'published' && !r.paper_id && (
+            <Button size="small" type="primary" danger onClick={() => handleAssignPaper(r)}>关联试卷</Button>
+          )}
+          {r.status === 'published' && r.paper_id && (
+            <Button size="small" onClick={() => handleAssignPaper(r)}>换试卷</Button>
           )}
         </Space>
       ),

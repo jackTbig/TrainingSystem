@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Alert, Button, Card, Col, Modal, Progress, Radio, Row,
-  Space, Tag, Typography, message,
+  Space, Tag, Typography, message, Result,
 } from 'antd'
 import { CheckOutlined, ClockCircleOutlined, SendOutlined } from '@ant-design/icons'
 import client from '@/api/client'
@@ -39,6 +39,7 @@ export default function ExamTakingPage() {
   const navigate = useNavigate()
 
   const [paper, setPaper] = useState<PaperData | null>(null)
+  const [paperError, setPaperError] = useState<string | null>(null)
   const [answers, setAnswers] = useState<Answers>({})
   const [current, setCurrent] = useState(0)
   const [secondsLeft, setSecondsLeft] = useState(0)
@@ -56,6 +57,10 @@ export default function ExamTakingPage() {
         const p: PaperData = res.data.data
         setPaper(p)
         setSecondsLeft(p.duration_minutes * 60)
+      })
+      .catch((e: unknown) => {
+        const err = e as { response?: { data?: { message?: string } } }
+        setPaperError(err?.response?.data?.message || '试卷加载失败，该考试可能未关联试卷')
       })
       .finally(() => setLoading(false))
   }, [examId])
@@ -136,7 +141,16 @@ export default function ExamTakingPage() {
   }
 
   if (loading) return <div style={{ textAlign: 'center', padding: 80 }}>加载中...</div>
-  if (!paper) return <div style={{ textAlign: 'center', padding: 80 }}>试卷不存在</div>
+  if (paperError || !paper) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f2f5' }}>
+      <Result
+        status="error"
+        title="无法加载试卷"
+        subTitle={paperError || '试卷不存在或未关联到该考试'}
+        extra={<Button type="primary" onClick={() => navigate('/my-exams')}>返回我的考试</Button>}
+      />
+    </div>
+  )
 
   const q = paper.questions[current]
   const answered = Object.keys(answers).length

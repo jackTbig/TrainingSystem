@@ -313,6 +313,22 @@ async def update_exam(
     return success_response(data={"id": str(exam.id), "title": exam.title, "status": exam.status})
 
 
+@router.patch("/{exam_id}/paper", response_model=dict, summary="为考试关联/更换试卷（已发布也可操作）")
+async def assign_exam_paper(
+    exam_id: uuid.UUID,
+    paper_id: uuid.UUID = Body(..., embed=True),
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    result = await db.execute(select(Exam).where(Exam.id == exam_id))
+    exam = result.scalar_one_or_none()
+    if not exam:
+        raise NotFoundException(code="EXAM_NOT_FOUND", message="考试不存在")
+    exam.paper_id = paper_id
+    await db.commit()
+    return success_response(data={"id": str(exam.id), "paper_id": str(exam.paper_id)})
+
+
 @router.delete("/{exam_id}", response_model=dict, summary="删除考试")
 async def delete_exam(
     exam_id: uuid.UUID,
@@ -422,6 +438,8 @@ async def start_exam(
         raise NotFoundException(code="EXAM_NOT_FOUND", message="考试不存在")
     if exam.status != "published":
         raise BusinessException(code="EXAM_NOT_PUBLISHED", message="考试未发布")
+    if not exam.paper_id:
+        raise BusinessException(code="EXAM_NO_PAPER", message="该考试尚未关联试卷，请先在考试管理中为其关联试卷")
 
     # 若已有进行中的答题，直接返回
     uid = uuid.UUID(user_id)

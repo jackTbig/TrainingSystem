@@ -84,7 +84,7 @@ export default function DepartmentsPage() {
     setSelectedDept(node)
     const [membersRes, usersRes] = await Promise.all([
       client.get(`/departments/${node.id}/members`),
-      client.get('/users', { params: { page: 1, page_size: 200 } }),
+      client.get('/users', { params: { page: 1, page_size: 100 } }),
     ])
     setMembers(membersRes.data.data)
     setAllUsers(usersRes.data.data.items)

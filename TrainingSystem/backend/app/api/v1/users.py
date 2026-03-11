@@ -1,6 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user_id, get_db
@@ -72,6 +73,23 @@ async def delete_user(
     svc = UserService(db)
     await svc.delete_user(user_id)
     return success_response(message="删除成功")
+
+
+@router.put("/{user_id}/roles", response_model=dict, summary="设置用户角色")
+async def set_user_roles(
+    user_id: uuid.UUID,
+    data: dict = Body(...),
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.user import UserRole
+    from sqlalchemy import delete as sql_delete
+    role_ids = data.get("role_ids", [])
+    await db.execute(sql_delete(UserRole).where(UserRole.user_id == user_id))
+    for rid in role_ids:
+        db.add(UserRole(user_id=user_id, role_id=uuid.UUID(rid)))
+    await db.commit()
+    return success_response(message="角色已更新")
 
 
 @router.post("/{user_id}/reset-password", response_model=dict, summary="重置密码")
