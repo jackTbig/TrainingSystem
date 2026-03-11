@@ -126,7 +126,7 @@ export default function UsersPage() {
       render: (v) => new Date(v).toLocaleString('zh-CN'),
     },
     {
-      title: '操作', width: 200,
+      title: '操作', width: 220, fixed: 'right',
       render: (_, row) => (
         <Space size="small">
           <Button
@@ -157,6 +157,7 @@ export default function UsersPage() {
 
       <Table
         rowKey="id" columns={columns} dataSource={rows} loading={loading}
+        scroll={{ x: 900 }}
         pagination={{ current: page, pageSize: 20, total, onChange: (p) => { setPage(p); fetchData(p) }, showTotal: (t) => `共 ${t} 条` }}
       />
 
