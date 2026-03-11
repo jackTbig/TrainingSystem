@@ -89,7 +89,7 @@ export default function MainLayout() {
           theme="dark"
           mode="inline"
           selectedKeys={[location.pathname]}
-          defaultOpenKeys={['system', 'knowledge', 'content', 'training', 'system2']}
+          defaultOpenKeys={[]}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
         />
