@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Layout, Menu, Avatar, Dropdown, Typography } from 'antd'
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
 import { useDispatch, useSelector } from 'react-redux'
@@ -8,8 +8,10 @@ import {
   AuditOutlined, SendOutlined, ExperimentOutlined, FileSearchOutlined,
   ThunderboltOutlined, LogoutOutlined, TrophyOutlined,
 } from '@ant-design/icons'
-import { logout } from '@/store/authSlice'
+import { logout, setCredentials } from '@/store/authSlice'
 import { RootState } from '@/store'
+import client from '@/api/client'
+import { storage } from '@/utils/storage'
 
 const { Header, Sider, Content } = Layout
 
@@ -78,7 +80,30 @@ export default function MainLayout() {
   const location = useLocation()
   const dispatch = useDispatch()
   const user = useSelector((state: RootState) => state.auth.user)
-  const isAdmin = user?.roles?.includes('admin') ?? false
+
+  // Re-fetch fresh user info on mount so roles are always current
+  useEffect(() => {
+    const token = storage.getToken()
+    if (!token) return
+    client.get('/auth/me').then((res) => {
+      const me = res.data.data
+      dispatch(setCredentials({
+        token,
+        user: {
+          id: me.id,
+          username: me.username,
+          real_name: me.real_name,
+          roles: (me.roles as { code: string }[]).map((r) => r.code),
+          permissions: [],
+        },
+      }))
+    }).catch(() => {})
+  }, [])
+
+  // Support both string[] and object[] (guards against stale localStorage format)
+  const isAdmin = user?.roles?.some((r: any) =>
+    typeof r === 'string' ? r === 'admin' : r?.code === 'admin'
+  ) ?? false
   const menuItems = buildMenu(isAdmin)
 
   const handleLogout = () => {
