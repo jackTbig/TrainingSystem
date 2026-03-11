@@ -63,7 +63,7 @@ export default function RolesPage() {
     setSelectedRole(role)
     const [detailRes, usersRes] = await Promise.all([
       client.get(`/roles/${role.id}`),
-      client.get('/users', { params: { page: 1, page_size: 200 } }),
+      client.get('/users', { params: { page: 1, page_size: 100 } }),
     ])
     const detail = detailRes.data.data
     setRoleDetail(detail)
