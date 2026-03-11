@@ -5,10 +5,14 @@ import {
   QuestionCircleOutlined, TeamOutlined, ThunderboltOutlined,
 } from '@ant-design/icons'
 import { useSelector } from 'react-redux'
+import { useNavigate } from 'react-router-dom'
 import { RootState } from '@/store'
 import client from '@/api/client'
 
 const { Title, Text } = Typography
+
+const cardStyle = { cursor: 'pointer', transition: 'box-shadow 0.2s' }
+const cardHover = { boxShadow: '0 4px 16px rgba(0,0,0,0.12)' }
 
 interface Stats {
   users: number
@@ -23,10 +27,20 @@ interface Stats {
 export default function DashboardPage() {
   const user = useSelector((state: RootState) => state.auth.user)
   const [stats, setStats] = useState<Stats | null>(null)
+  const [hovered, setHovered] = useState<string | null>(null)
+  const navigate = useNavigate()
 
   useEffect(() => {
     client.get('/dashboard').then((res) => setStats(res.data.data)).catch(() => {})
   }, [])
+
+  const go = (path: string) => navigate(path)
+
+  const mk = (key: string) => ({
+    style: { ...cardStyle, ...(hovered === key ? cardHover : {}) },
+    onMouseEnter: () => setHovered(key),
+    onMouseLeave: () => setHovered(null),
+  })
 
   return (
     <div>
@@ -35,42 +49,42 @@ export default function DashboardPage() {
 
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} md={6}>
-          <Card>
+          <Card {...mk('users')} onClick={() => go('/system/users')}>
             <Statistic title="活跃用户" value={stats?.users ?? '—'} prefix={<TeamOutlined />} valueStyle={{ color: '#1677ff' }} />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <Card>
+          <Card {...mk('docs')} onClick={() => go('/documents')}>
             <Statistic title="文档总数" value={stats?.documents.total ?? '—'} prefix={<FileTextOutlined />}
               suffix={stats ? <Text type="secondary" style={{ fontSize: 12 }}>已解析 {stats.documents.parsed}</Text> : null} />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <Card>
+          <Card {...mk('kp')} onClick={() => go('/knowledge-points')}>
             <Statistic title="知识点" value={stats?.knowledge_points.total ?? '—'} prefix={<ThunderboltOutlined />}
               suffix={stats?.knowledge_points.candidates_pending ? <Text type="warning" style={{ fontSize: 12 }}>待审 {stats.knowledge_points.candidates_pending}</Text> : null} />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <Card>
+          <Card {...mk('courses')} onClick={() => go('/courses')}>
             <Statistic title="课程" value={stats?.courses.total ?? '—'} prefix={<BookOutlined />}
               suffix={stats ? <Text type="secondary" style={{ fontSize: 12 }}>已发布 {stats.courses.published}</Text> : null} />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <Card>
+          <Card {...mk('questions')} onClick={() => go('/questions')}>
             <Statistic title="题目数量" value={stats?.questions.total ?? '—'} prefix={<QuestionCircleOutlined />}
               suffix={stats ? <Text type="secondary" style={{ fontSize: 12 }}>已发布 {stats.questions.published}</Text> : null} />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <Card>
+          <Card {...mk('exams')} onClick={() => go('/exams')}>
             <Statistic title="考试场次" value={stats?.exams.total ?? '—'} prefix={<FormOutlined />}
               suffix={stats ? <Text type="secondary" style={{ fontSize: 12 }}>答题 {stats.exams.attempts} 次</Text> : null} />
           </Card>
         </Col>
         <Col xs={24} sm={12} md={6}>
-          <Card>
+          <Card {...mk('training')} onClick={() => go('/training-tasks')}>
             <Statistic title="培训任务" value={stats?.training_tasks.total ?? '—'} prefix={<BookOutlined />}
               suffix={stats ? <Text type="secondary" style={{ fontSize: 12 }}>进行中 {stats.training_tasks.in_progress}</Text> : null} />
           </Card>
