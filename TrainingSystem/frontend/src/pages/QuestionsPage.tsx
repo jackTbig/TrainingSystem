@@ -37,6 +37,15 @@ function collectDescendantIds(nodes: any[], targetId: string): string[] {
   return []
 }
 
+function collectAncestorIds(nodes: any[], targetId: string, path: string[] = []): string[] {
+  for (const n of nodes) {
+    if (n.value === targetId) return path
+    const found = collectAncestorIds(n.children ?? [], targetId, [...path, n.value])
+    if (found.length > 0 || (n.children ?? []).some((c: any) => c.value === targetId)) return found
+  }
+  return []
+}
+
 function applyDownwardCascade(prev: string[], next: string[], tree: any[]): string[] {
   const added = next.filter(id => !prev.includes(id))
   const removed = prev.filter(id => !next.includes(id))
@@ -46,8 +55,12 @@ function applyDownwardCascade(prev: string[], next: string[], tree: any[]): stri
     desc.forEach(d => { if (!result.includes(d)) result.push(d) })
   }
   for (const id of removed) {
+    // remove descendants (unchecking a parent clears children)
     const desc = collectDescendantIds(tree, id)
     result = result.filter(r => !desc.includes(r))
+    // remove ancestors (unchecking a child clears parent)
+    const anc = collectAncestorIds(tree, id)
+    result = result.filter(r => !anc.includes(r))
   }
   return result
 }
