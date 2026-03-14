@@ -38,9 +38,25 @@ def _score_answer(q_type: str, correct: dict, submitted: dict, max_score: int) -
             sub_val = {v.strip() for v in sub_val if v.strip()}
             return max_score if correct_val == sub_val else 0
 
+        if q_type == "matching":
+            correct_pairs = correct.get("pairs", {})
+            sub_pairs = submitted.get("value", {})
+            if not correct_pairs:
+                return 0
+            if isinstance(sub_pairs, str):
+                try:
+                    import json as _json
+                    sub_pairs = _json.loads(sub_pairs)
+                except Exception:
+                    return 0
+            if not isinstance(sub_pairs, dict):
+                return 0
+            matched = sum(1 for k, v in correct_pairs.items() if str(sub_pairs.get(str(k), "")) == str(v))
+            return round(max_score * matched / len(correct_pairs))
+
     except Exception:
         pass
-    # fill_blank / short_answer → 人工批阅
+    # fill_blank / short_answer / ai_graded → 人工批阅或 AI 批阅
     return 0
 
 
@@ -82,6 +98,28 @@ async def _grade_attempt(attempt: ExamAttempt, db: AsyncSession) -> None:
             s = 0
         answer.score = s
         total += s
+
+    # AI grading for ai_graded questions
+    from app.services.ai_client import grade_answer as ai_grade
+    paper_scores: dict[str, int] = {str(item.question_version_id): item.score for item in paper.items}
+    for ans in attempt.answers:
+        qv = qv_map.get(ans.question_version_id)
+        if qv and qv.question_type == "ai_graded":
+            student_text = (ans.answer_json or {}).get("value", "")
+            if student_text:
+                criteria = (qv.answer_json or {}).get("scoring_criteria", "")
+                ref_answer = (qv.answer_json or {}).get("reference_answer", "")
+                max_s = paper_scores.get(str(ans.question_version_id), 10)
+                ai_result = await ai_grade(
+                    stem=qv.stem,
+                    scoring_criteria=criteria,
+                    reference_answer=ref_answer,
+                    student_answer=str(student_text),
+                    max_score=max_s,
+                )
+                ans.score = ai_result["score"]
+                ans.answer_json = {**(ans.answer_json or {}), "ai_comment": ai_result["comment"]}
+                total += ai_result["score"]
 
     attempt.total_score = total
     attempt.pass_result = total >= exam.pass_score

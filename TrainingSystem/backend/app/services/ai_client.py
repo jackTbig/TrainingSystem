@@ -119,6 +119,46 @@ async def generate_course(
         return {"summary": "", "chapters": []}
 
 
+async def grade_answer(
+    stem: str,
+    scoring_criteria: str,
+    reference_answer: str,
+    student_answer: str,
+    max_score: int = 10,
+) -> dict:
+    """使用 AI 对主观题进行评分。返回 {"score": int, "comment": str}"""
+    system_prompt = (
+        f"你是一位专业阅卷老师。请根据题目、评分标准和参考答案，对学生答案进行评分。\n"
+        f"满分为 {max_score} 分。\n"
+        "请以 JSON 格式输出：\n"
+        "- score: 得分（整数，0 到满分之间）\n"
+        "- comment: 评语（1-2句，说明扣分原因或肯定之处）\n"
+        "只输出合法 JSON，不要有其他文字。"
+    )
+    user_prompt = (
+        f"题目：{stem}\n\n"
+        f"评分标准：{scoring_criteria}\n\n"
+        f"参考答案：{reference_answer}\n\n"
+        f"学生答案：{student_answer}"
+    )
+    try:
+        content = await chat_completion(
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            json_mode=True,
+            temperature=0.2,
+        )
+        result = json.loads(content)
+        score = max(0, min(max_score, int(result.get("score", 0))))
+        comment = str(result.get("comment", ""))
+        return {"score": score, "comment": comment}
+    except Exception as e:
+        logger.warning("AI grading failed: %s", e)
+        return {"score": 0, "comment": "AI评分失败，需人工批阅"}
+
+
 async def generate_questions(
     source_content: str,
     question_types: list[str] | None = None,

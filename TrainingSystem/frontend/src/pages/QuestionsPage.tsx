@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import {
-  Button, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Typography, message,
+  Button, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Table, Tag, Typography, message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { PlusOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import client from '@/api/client'
 
-const { Title } = Typography
+const { Title, Text } = Typography
 
 interface QuestionRow {
   id: string; status: string; current_version_id: string | null; created_at: string
@@ -16,6 +16,7 @@ interface QuestionRow {
 const TYPE_LABEL: Record<string, string> = {
   single_choice: '单选', multi_choice: '多选', true_false: '判断',
   fill_blank: '填空', short_answer: '简答',
+  matching: '连线题', ai_graded: 'AI判卷',
 }
 
 export default function QuestionsPage() {
@@ -60,6 +61,19 @@ export default function QuestionsPage() {
         answer_json = { answer: values.answer }
       } else if (values.question_type === 'true_false') {
         answer_json = { answer: values.tf_answer }
+      } else if (values.question_type === 'matching') {
+        const left = (values.matchLeft as string[]).filter(Boolean)
+        const right = (values.matchRight as string[]).filter(Boolean)
+        options = { left, right } as unknown as Record<string, string>
+        const pairs: Record<string, string> = {}
+        left.forEach((_, i) => { pairs[String(i)] = String(i) })
+        answer_json = { pairs }
+      } else if (values.question_type === 'ai_graded') {
+        answer_json = {
+          scoring_criteria: values.scoring_criteria,
+          reference_answer: values.reference_answer,
+        }
+        options = undefined
       } else {
         answer_json = { answer: values.text_answer }
       }
@@ -198,6 +212,61 @@ export default function QuestionsPage() {
             <Form.Item label="参考答案" name="text_answer" rules={[{ required: true }]}>
               <Input.TextArea rows={2} />
             </Form.Item>
+          )}
+          {qType === 'matching' && (
+            <>
+              <Form.Item label="提示" style={{ marginBottom: 4 }}>
+                <Text type="secondary" style={{ fontSize: 12 }}>
+                  按正确配对顺序输入：第1行左项对应第1行右项，以此类推
+                </Text>
+              </Form.Item>
+              <Row gutter={16}>
+                <Col span={12}>
+                  <Form.List name="matchLeft" initialValue={['', '', '']}>
+                    {(fields, { add, remove }) => (
+                      <>
+                        <div style={{ fontWeight: 500, marginBottom: 8 }}>左侧项目</div>
+                        {fields.map((field, idx) => (
+                          <Form.Item key={field.key} name={field.name} rules={[{ required: true }]}
+                            style={{ marginBottom: 8 }}>
+                            <Input placeholder={`左项 ${idx + 1}`}
+                              suffix={fields.length > 2 ? <Button type="text" size="small" danger onClick={() => remove(field.name)}>×</Button> : null} />
+                          </Form.Item>
+                        ))}
+                        <Button type="dashed" onClick={() => add('')} block>+ 添加左项</Button>
+                      </>
+                    )}
+                  </Form.List>
+                </Col>
+                <Col span={12}>
+                  <Form.List name="matchRight" initialValue={['', '', '']}>
+                    {(fields, { add, remove }) => (
+                      <>
+                        <div style={{ fontWeight: 500, marginBottom: 8 }}>右侧项目（正确配对顺序）</div>
+                        {fields.map((field, idx) => (
+                          <Form.Item key={field.key} name={field.name} rules={[{ required: true }]}
+                            style={{ marginBottom: 8 }}>
+                            <Input placeholder={`右项 ${idx + 1}`}
+                              suffix={fields.length > 2 ? <Button type="text" size="small" danger onClick={() => remove(field.name)}>×</Button> : null} />
+                          </Form.Item>
+                        ))}
+                        <Button type="dashed" onClick={() => add('')} block>+ 添加右项</Button>
+                      </>
+                    )}
+                  </Form.List>
+                </Col>
+              </Row>
+            </>
+          )}
+          {qType === 'ai_graded' && (
+            <>
+              <Form.Item label="评分标准（AI判卷依据）" name="scoring_criteria" rules={[{ required: true }]}>
+                <Input.TextArea rows={3} placeholder="描述答案要包含的要点，AI将据此评分" />
+              </Form.Item>
+              <Form.Item label="参考答案" name="reference_answer" rules={[{ required: true }]}>
+                <Input.TextArea rows={3} placeholder="标准答案，供AI参考" />
+              </Form.Item>
+            </>
           )}
           <Form.Item label="解析" name="analysis">
             <Input.TextArea rows={2} />

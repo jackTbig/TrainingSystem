@@ -12,9 +12,9 @@ interface AnswerItem {
   question_version_id: string
   question_type: string
   stem: string
-  options: Record<string, string> | null
-  answer_json: { value: unknown }
-  correct_answer: { value: unknown }
+  options: Record<string, string | string[]> | null
+  answer_json: { value: unknown; ai_comment?: string }
+  correct_answer: { value: unknown; pairs?: Record<string, string> }
   analysis: string | null
   score: number | null
 }
@@ -33,14 +33,22 @@ interface AttemptResult {
 const TYPE_LABEL: Record<string, string> = {
   single_choice: '单选', multi_choice: '多选', true_false: '判断',
   fill_blank: '填空', short_answer: '简答',
+  matching: '连线题', ai_graded: 'AI判卷',
 }
 
-function formatAnswer(type: string, value: unknown, options: Record<string, string> | null): string {
+function formatAnswer(type: string, value: unknown, options: Record<string, string | string[]> | null): string {
   if (value === null || value === undefined) return '未作答'
   if (type === 'true_false') return value === true || value === 'true' ? '正确' : '错误'
   if ((type === 'single_choice' || type === 'multi_choice') && options) {
     const keys = String(value).split(',')
-    return keys.map((k) => `${k.trim()}. ${options[k.trim()] ?? ''}`).join(' | ')
+    return keys.map((k) => `${k.trim()}. ${(options[k.trim()] as string) ?? ''}`).join(' | ')
+  }
+  if (type === 'matching') {
+    if (typeof value === 'object' && value !== null) {
+      return Object.entries(value as Record<string, string>)
+        .map(([l, r]) => `左${parseInt(l) + 1}→右${parseInt(r) + 1}`).join(', ')
+    }
+    return String(value)
   }
   return String(value)
 }
@@ -108,7 +116,9 @@ export default function ExamResultPage() {
         <Collapse
           items={result.answers.map((ans, idx) => {
             const correct = ans.score !== null && ans.score > 0
-            const isSubjective = ['fill_blank', 'short_answer'].includes(ans.question_type)
+            const isSubjective = ['fill_blank', 'short_answer', 'ai_graded'].includes(ans.question_type)
+            const isMatching = ans.question_type === 'matching'
+            const isAiGraded = ans.question_type === 'ai_graded'
             return {
               key: ans.question_version_id,
               label: (
@@ -116,11 +126,15 @@ export default function ExamResultPage() {
                   <Col><Text strong>第 {idx + 1} 题</Text></Col>
                   <Col><Tag color="blue">{TYPE_LABEL[ans.question_type]}</Tag></Col>
                   <Col>
-                    {isSubjective
-                      ? <Tag color="default">主观题</Tag>
-                      : correct
-                        ? <Tag color="success">正确 +{ans.score}</Tag>
-                        : <Tag color="error">错误 +0</Tag>}
+                    {isAiGraded
+                      ? <Tag color={correct ? 'success' : 'default'}>AI评分 +{ans.score ?? 0}</Tag>
+                      : isMatching
+                        ? <Tag color={correct ? 'success' : ans.score && ans.score > 0 ? 'warning' : 'error'}>+{ans.score ?? 0}</Tag>
+                        : isSubjective
+                          ? <Tag color="default">主观题</Tag>
+                          : correct
+                            ? <Tag color="success">正确 +{ans.score}</Tag>
+                            : <Tag color="error">错误 +0</Tag>}
                   </Col>
                   <Col flex="auto"><Text ellipsis>{ans.stem}</Text></Col>
                 </Row>
@@ -129,12 +143,32 @@ export default function ExamResultPage() {
                 <Space direction="vertical" style={{ width: '100%' }}>
                   <Paragraph style={{ marginBottom: 8 }}><Text strong>题目：</Text>{ans.stem}</Paragraph>
 
-                  {ans.options && (
+                  {ans.options && !isMatching && (
                     <div>
                       <Text strong>选项：</Text>
                       {Object.entries(ans.options).map(([k, v]) => (
                         <div key={k} style={{ paddingLeft: 16 }}>{k}. {v}</div>
                       ))}
+                    </div>
+                  )}
+
+                  {isMatching && ans.options && (
+                    <div>
+                      <Text strong>连线项目：</Text>
+                      <Row gutter={16} style={{ marginTop: 8 }}>
+                        <Col span={12}>
+                          <div style={{ fontWeight: 500, marginBottom: 4 }}>左侧</div>
+                          {(ans.options.left as string[]).map((item: string, i: number) => (
+                            <div key={i} style={{ paddingLeft: 8 }}>{i + 1}. {item}</div>
+                          ))}
+                        </Col>
+                        <Col span={12}>
+                          <div style={{ fontWeight: 500, marginBottom: 4 }}>右侧</div>
+                          {(ans.options.right as string[]).map((item: string, i: number) => (
+                            <div key={i} style={{ paddingLeft: 8 }}>{i + 1}. {item}</div>
+                          ))}
+                        </Col>
+                      </Row>
                     </div>
                   )}
 
@@ -145,11 +179,21 @@ export default function ExamResultPage() {
                     </Text>
                   </div>
 
-                  {!isSubjective && (
+                  {!isSubjective && !isAiGraded && (
                     <div>
                       <Text strong>正确答案：</Text>
                       <Text type="success">
-                        {formatAnswer(ans.question_type, ans.correct_answer?.value, ans.options)}
+                        {isMatching
+                          ? formatAnswer('matching', ans.correct_answer?.pairs, ans.options)
+                          : formatAnswer(ans.question_type, ans.correct_answer?.value, ans.options)}
+                      </Text>
+                    </div>
+                  )}
+
+                  {isAiGraded && ans.answer_json?.ai_comment && (
+                    <div style={{ marginTop: 8, padding: '8px 12px', background: '#f6f8ff', borderRadius: 6, border: '1px solid #d6e4ff' }}>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        <Text strong style={{ fontSize: 12 }}>AI评语：</Text>{ans.answer_json.ai_comment}
                       </Text>
                     </div>
                   )}

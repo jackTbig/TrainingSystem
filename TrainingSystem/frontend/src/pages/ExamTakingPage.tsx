@@ -15,7 +15,7 @@ interface Question {
   score: number
   question_type: string
   stem: string
-  options: Record<string, string> | null
+  options: Record<string, string | string[]> | null
 }
 
 interface PaperData {
@@ -27,11 +27,12 @@ interface PaperData {
   questions: Question[]
 }
 
-type Answers = Record<string, string | string[]>
+type Answers = Record<string, string | string[] | Record<string, string>>
 
 const TYPE_LABEL: Record<string, string> = {
   single_choice: '单选', multi_choice: '多选', true_false: '判断',
   fill_blank: '填空', short_answer: '简答',
+  matching: '连线题', ai_graded: 'AI判卷',
 }
 
 export default function ExamTakingPage() {
@@ -45,6 +46,8 @@ export default function ExamTakingPage() {
   const [secondsLeft, setSecondsLeft] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [shuffledRights, setShuffledRights] = useState<Record<string, string[]>>({})
+  const [selectedLeft, setSelectedLeft] = useState<string | null>(null)
   const autoSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -64,6 +67,23 @@ export default function ExamTakingPage() {
       })
       .finally(() => setLoading(false))
   }, [examId])
+
+  // 初始化连线题打乱顺序的右侧选项
+  useEffect(() => {
+    if (!paper) return
+    const map: Record<string, string[]> = {}
+    paper.questions.forEach((q) => {
+      if (q.question_type === 'matching' && Array.isArray(q.options?.right)) {
+        const rights = [...(q.options!.right as string[])]
+        for (let i = rights.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [rights[i], rights[j]] = [rights[j], rights[i]]
+        }
+        map[q.question_version_id] = rights
+      }
+    })
+    setShuffledRights(map)
+  }, [paper])
 
   // 倒计时
   useEffect(() => {
@@ -98,16 +118,26 @@ export default function ExamTakingPage() {
     } catch { /* 静默失败 */ }
   }
 
-  const handleAnswer = (qvid: string, value: string | string[]) => {
+  const handleAnswer = (qvid: string, value: string | string[] | Record<string, string>) => {
     setAnswers((prev) => ({ ...prev, [qvid]: value }))
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current)
     autoSaveTimer.current = setTimeout(() => autoSave(qvid, value), 1500)
   }
 
+  const isAnswered = (q: Question) => {
+    const ans = answers[q.question_version_id]
+    if (!ans) return false
+    if (q.question_type === 'matching' && Array.isArray(q.options?.left)) {
+      const pairs = ans as Record<string, string>
+      return (q.options!.left as string[]).every((_: string, i: number) => pairs[String(i)] !== undefined)
+    }
+    return !!ans
+  }
+
   const handleSubmit = async (isTimeout = false) => {
     if (!attemptId) return
     if (!isTimeout) {
-      const unanswered = paper!.questions.filter((q) => !answers[q.question_version_id]).length
+      const unanswered = paper!.questions.filter((q) => !isAnswered(q)).length
       if (unanswered > 0) {
         Modal.confirm({
           title: `还有 ${unanswered} 道题未作答`,
@@ -153,7 +183,7 @@ export default function ExamTakingPage() {
   )
 
   const q = paper.questions[current]
-  const answered = Object.keys(answers).length
+  const answered = paper.questions.filter(isAnswered).length
   const urgentTime = secondsLeft < 300 // 5分钟内变红
 
   return (
@@ -198,7 +228,7 @@ export default function ExamTakingPage() {
             />
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               {paper.questions.map((item, idx) => {
-                const isDone = !!answers[item.question_version_id]
+                const isDone = isAnswered(item)
                 const isCur = idx === current
                 return (
                   <div
@@ -283,6 +313,90 @@ export default function ExamTakingPage() {
                 placeholder="请在此输入答案..."
                 style={{ width: '100%', padding: 12, border: '1px solid #d9d9d9', borderRadius: 6, fontSize: 14, resize: 'vertical', outline: 'none' }}
               />
+            )}
+
+            {/* AI判卷 */}
+            {q.question_type === 'ai_graded' && (
+              <textarea
+                rows={5}
+                value={(answers[q.question_version_id] as string) || ''}
+                onChange={(e) => handleAnswer(q.question_version_id, e.target.value)}
+                placeholder="请在此输入答案，AI将根据评分标准进行评分..."
+                style={{ width: '100%', padding: 12, border: '1px solid #d9d9d9', borderRadius: 6, fontSize: 14, resize: 'vertical', outline: 'none' }}
+              />
+            )}
+
+            {/* 连线题 */}
+            {q.question_type === 'matching' && q.options && (
+              <div>
+                <div style={{ fontSize: 12, color: '#999', marginBottom: 12 }}>
+                  点击左侧项目，再点击右侧项目进行连线
+                </div>
+                <Row gutter={24}>
+                  <Col span={10}>
+                    {(q.options.left as string[]).map((item: string, li: number) => {
+                      const key = `${q.question_version_id}:${li}`
+                      const isSelected = selectedLeft === key
+                      const currentAnswer = (answers[q.question_version_id] as Record<string, string>) || {}
+                      const pairedRightIdx = currentAnswer[String(li)]
+                      const colors = ['#1677ff', '#52c41a', '#faad14', '#f5222d', '#722ed1', '#13c2c2']
+                      return (
+                        <div key={li}
+                          onClick={() => setSelectedLeft(isSelected ? null : key)}
+                          style={{
+                            padding: '10px 14px', marginBottom: 8, borderRadius: 6, cursor: 'pointer',
+                            border: `2px solid ${isSelected ? colors[li % colors.length] : pairedRightIdx !== undefined ? colors[li % colors.length] : '#d9d9d9'}`,
+                            background: isSelected ? `${colors[li % colors.length]}15` : '#fff',
+                            display: 'flex', alignItems: 'center', gap: 8,
+                          }}>
+                          <Tag color={pairedRightIdx !== undefined ? colors[li % colors.length] : 'default'}>{li + 1}</Tag>
+                          <span>{item}</span>
+                        </div>
+                      )
+                    })}
+                  </Col>
+                  <Col span={4} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ color: '#999', fontSize: 20 }}>→</div>
+                  </Col>
+                  <Col span={10}>
+                    {(shuffledRights[q.question_version_id] || (q.options.right as string[])).map((item: string, si: number) => {
+                      const currentAnswer = (answers[q.question_version_id] as Record<string, string>) || {}
+                      const actualRightIdx = (q.options!.right as string[]).indexOf(item)
+                      const pairedLeftIdx = Object.entries(currentAnswer).find(([, v]) => v === String(actualRightIdx))?.[0]
+                      const colors = ['#1677ff', '#52c41a', '#faad14', '#f5222d', '#722ed1', '#13c2c2']
+                      const color = pairedLeftIdx !== undefined ? colors[parseInt(pairedLeftIdx) % colors.length] : null
+                      return (
+                        <div key={si}
+                          onClick={() => {
+                            if (!selectedLeft) return
+                            const [qvid, leftIdxStr] = selectedLeft.split(':')
+                            if (qvid !== q.question_version_id) return
+                            const leftIdx = parseInt(leftIdxStr)
+                            const actualRight = (q.options!.right as string[]).indexOf(item)
+                            const prev = (answers[q.question_version_id] as Record<string, string>) || {}
+                            const next = { ...prev, [String(leftIdx)]: String(actualRight) }
+                            handleAnswer(q.question_version_id, next)
+                            setSelectedLeft(null)
+                          }}
+                          style={{
+                            padding: '10px 14px', marginBottom: 8, borderRadius: 6, cursor: selectedLeft ? 'pointer' : 'default',
+                            border: `2px solid ${color || '#d9d9d9'}`,
+                            background: color ? `${color}15` : '#fff',
+                            display: 'flex', alignItems: 'center', gap: 8,
+                          }}>
+                          {pairedLeftIdx !== undefined && <Tag color={colors[parseInt(pairedLeftIdx) % colors.length]}>{parseInt(pairedLeftIdx) + 1}</Tag>}
+                          <span>{item}</span>
+                        </div>
+                      )
+                    })}
+                  </Col>
+                </Row>
+                {Object.keys((answers[q.question_version_id] as Record<string, string>) || {}).length > 0 && (
+                  <Button type="link" danger size="small" onClick={() => handleAnswer(q.question_version_id, {})}>
+                    清除所有连线
+                  </Button>
+                )}
+              </div>
             )}
 
             {urgentTime && (
