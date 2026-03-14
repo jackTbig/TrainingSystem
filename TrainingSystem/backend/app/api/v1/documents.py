@@ -1,10 +1,13 @@
 import uuid
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user_id, get_db
+from app.core.config import settings
 from app.core.exceptions import NotFoundException
 from app.core.response import paginated_response, success_response
 from app.models.document import Document, DocumentChunk, DocumentVersion
@@ -179,6 +182,40 @@ async def get_chunk(
             "file_name": doc_version.file_name,
         } if doc and doc_version else None,
     })
+
+
+@router.get("/{doc_id}/download", summary="下载/预览原始文件")
+async def download_document(
+    doc_id: uuid.UUID,
+    inline: bool = Query(False, description="True=浏览器内嵌预览，False=强制下载"),
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    doc = (await db.execute(select(Document).where(Document.id == doc_id))).scalar_one_or_none()
+    if not doc:
+        raise NotFoundException(code="DOC_NOT_FOUND", message="文档不存在")
+    if not doc.current_version_id:
+        raise NotFoundException(code="DOC_NO_VERSION", message="文档暂无版本")
+    version = (await db.execute(
+        select(DocumentVersion).where(DocumentVersion.id == doc.current_version_id)
+    )).scalar_one_or_none()
+    if not version:
+        raise NotFoundException(code="DOC_VERSION_NOT_FOUND", message="版本不存在")
+
+    # file_path is stored relative to working dir (e.g. "uploads/xxx_file.pdf")
+    file_path = Path(version.file_path)
+    if not file_path.is_absolute():
+        file_path = Path(settings.STORAGE_LOCAL_PATH).parent / version.file_path
+    if not file_path.exists():
+        raise NotFoundException(code="FILE_NOT_FOUND", message="文件不存在，可能已被清理")
+
+    disposition = "inline" if inline else "attachment"
+    return FileResponse(
+        path=str(file_path),
+        filename=version.file_name,
+        media_type=version.mime_type or "application/octet-stream",
+        headers={"Content-Disposition": f'{disposition}; filename="{version.file_name}"'},
+    )
 
 
 @router.post("/{doc_id}/reparse", response_model=dict, summary="重新解析")

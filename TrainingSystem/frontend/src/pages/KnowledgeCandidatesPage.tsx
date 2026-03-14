@@ -4,7 +4,7 @@ import {
   Select, Space, Table, Tag, Tooltip, Typography, message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { CheckOutlined, CloseOutlined, EyeOutlined, LinkOutlined } from '@ant-design/icons'
+import { CheckOutlined, CloseOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, LinkOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import type { Candidate } from '@/api/knowledge'
 import { candidatesApi, knowledgePointsApi } from '@/api/knowledge'
@@ -370,6 +370,7 @@ export default function KnowledgeCandidatesPage() {
                   <div style={{ color: '#999', fontSize: 13 }}>加载中...</div>
                 ) : sourceChunk ? (
                   <div style={{ border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden' }}>
+                    {/* 文档信息 + 操作按钮 */}
                     <div style={{ padding: '8px 12px', background: '#f5f5f5', borderBottom: '1px solid #e8e8e8', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                       {sourceChunk.document && (
                         <Tag
@@ -383,6 +384,58 @@ export default function KnowledgeCandidatesPage() {
                       {sourceChunk.chapter_title && (
                         <Tag color="geekblue" style={{ margin: 0 }}>{sourceChunk.chapter_title}</Tag>
                       )}
+                      {/* 预览 / 下载按钮 */}
+                      {sourceChunk.document && (() => {
+                        const docId = sourceChunk.document!.id
+                        const fileName = sourceChunk.document!.file_name
+                        const isPdf = fileName.toLowerCase().endsWith('.pdf')
+
+                        const openFile = async (inline: boolean) => {
+                          try {
+                            const res = await client.get(
+                              `/documents/${docId}/download`,
+                              { params: { inline }, responseType: 'blob' }
+                            )
+                            const blob = new Blob([res.data], { type: res.headers['content-type'] })
+                            const url = URL.createObjectURL(blob)
+                            const a = document.createElement('a')
+                            a.href = url
+                            if (!inline) a.download = fileName
+                            else a.target = '_blank'
+                            document.body.appendChild(a)
+                            a.click()
+                            document.body.removeChild(a)
+                            setTimeout(() => URL.revokeObjectURL(url), 5000)
+                          } catch {
+                            message.error('文件获取失败')
+                          }
+                        }
+
+                        return (
+                          <Space size={4} style={{ marginLeft: 'auto' }}>
+                            {isPdf && (
+                              <Tooltip title="在浏览器中预览 PDF">
+                                <Button
+                                  size="small" type="link" icon={<FilePdfOutlined />}
+                                  style={{ padding: '0 4px', color: '#ff4d4f' }}
+                                  onClick={() => openFile(true)}
+                                >
+                                  预览
+                                </Button>
+                              </Tooltip>
+                            )}
+                            <Tooltip title="下载原始文件">
+                              <Button
+                                size="small" type="link" icon={<DownloadOutlined />}
+                                style={{ padding: '0 4px' }}
+                                onClick={() => openFile(false)}
+                              >
+                                下载
+                              </Button>
+                            </Tooltip>
+                          </Space>
+                        )
+                      })()}
                     </div>
                     <div style={{ padding: '10px 12px', maxHeight: 200, overflowY: 'auto', fontSize: 13, lineHeight: 1.7, color: '#333', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                       {sourceChunk.content}
