@@ -202,19 +202,22 @@ async def download_document(
     if not version:
         raise NotFoundException(code="DOC_VERSION_NOT_FOUND", message="版本不存在")
 
-    # file_path is stored relative to working dir (e.g. "uploads/xxx_file.pdf")
-    file_path = Path(version.file_path)
+    # Normalize separators (Windows stores backslash in DB)
+    normalized = version.file_path.replace('\\', '/')
+    file_path = Path(normalized)
     if not file_path.is_absolute():
-        file_path = Path(settings.STORAGE_LOCAL_PATH).parent / version.file_path
+        # normalized is like "uploads/xxx_file.pdf"; resolve from backend working dir
+        file_path = Path(settings.STORAGE_LOCAL_PATH).parent / normalized
     if not file_path.exists():
         raise NotFoundException(code="FILE_NOT_FOUND", message="文件不存在，可能已被清理")
 
+    from urllib.parse import quote
     disposition = "inline" if inline else "attachment"
+    encoded_name = quote(version.file_name, safe='')
     return FileResponse(
         path=str(file_path),
-        filename=version.file_name,
         media_type=version.mime_type or "application/octet-stream",
-        headers={"Content-Disposition": f'{disposition}; filename="{version.file_name}"'},
+        headers={"Content-Disposition": f"{disposition}; filename*=UTF-8''{encoded_name}"},
     )
 
 
