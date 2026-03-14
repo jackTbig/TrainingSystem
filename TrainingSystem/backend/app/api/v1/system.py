@@ -164,9 +164,15 @@ async def list_bg_tasks(
     _: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.models.document import DocumentParseTask
-    from app.models.course import CourseGenerationTask
+    from app.models.document import Document, DocumentParseTask, DocumentVersion
+    from app.models.course import Course, CourseGenerationTask
     from app.models.question import QuestionGenerationTask
+    from app.models.knowledge import KnowledgePoint
+
+    TYPE_LABEL: dict[str, str] = {
+        "single_choice": "单选", "multi_choice": "多选",
+        "true_false": "判断", "fill_blank": "填空", "short_answer": "简答",
+    }
 
     all_items: list[dict] = []
 
@@ -175,8 +181,16 @@ async def list_bg_tasks(
         if status:
             q = q.where(DocumentParseTask.status == status)
         for r in (await db.execute(q.order_by(desc(DocumentParseTask.created_at)).limit(200))).scalars().all():
+            # Resolve document title via version → document
+            doc_title = None
+            dv = (await db.execute(select(DocumentVersion).where(DocumentVersion.id == r.document_version_id))).scalar_one_or_none()
+            if dv:
+                doc = (await db.execute(select(Document).where(Document.id == dv.document_id))).scalar_one_or_none()
+                doc_title = doc.title if doc else None
+            description = f"文档：{doc_title}" if doc_title else "文档解析"
             all_items.append({
                 "id": str(r.id), "job_type": "document_parse", "biz_label": "文档解析",
+                "description": description,
                 "biz_id": str(r.document_version_id), "status": r.status,
                 "retry_count": r.retry_count, "error_message": r.error_message,
                 "created_at": r.created_at.isoformat(),
@@ -189,8 +203,19 @@ async def list_bg_tasks(
         if status:
             q = q.where(CourseGenerationTask.status == status)
         for r in (await db.execute(q.order_by(desc(CourseGenerationTask.created_at)).limit(200))).scalars().all():
+            # Resolve course title
+            course_title = None
+            if r.course_id:
+                course = (await db.execute(select(Course).where(Course.id == r.course_id))).scalar_one_or_none()
+                course_title = course.title if course else None
+            cfg = r.config or {}
+            chapter_count = cfg.get("chapter_count", "?")
+            kp_ids = cfg.get("knowledge_point_ids", [])
+            kp_part = f"，{len(kp_ids)} 个知识点" if kp_ids else "，全部知识点"
+            description = f"课程：{course_title}（{chapter_count} 章节{kp_part}）" if course_title else f"课程生成（{chapter_count} 章节{kp_part}）"
             all_items.append({
                 "id": str(r.id), "job_type": "course_generate", "biz_label": "课程生成",
+                "description": description,
                 "biz_id": str(r.course_id) if r.course_id else None, "status": r.status,
                 "retry_count": r.retry_count, "error_message": r.error_message,
                 "created_at": r.created_at.isoformat(), "started_at": None, "finished_at": None,
@@ -201,8 +226,16 @@ async def list_bg_tasks(
         if status:
             q = q.where(QuestionGenerationTask.status == status)
         for r in (await db.execute(q.order_by(desc(QuestionGenerationTask.created_at)).limit(200))).scalars().all():
+            cfg = r.config or {}
+            count = cfg.get("count", "?")
+            types = cfg.get("question_types", [])
+            type_str = "、".join(TYPE_LABEL.get(t, t) for t in types) if types else "混合题型"
+            kp_ids = cfg.get("knowledge_point_ids", [])
+            kp_part = f"，{len(kp_ids)} 个知识点" if kp_ids else "，全部知识点"
+            description = f"生成 {count} 题（{type_str}{kp_part}）"
             all_items.append({
                 "id": str(r.id), "job_type": "question_generate", "biz_label": "题目生成",
+                "description": description,
                 "biz_id": None, "status": r.status,
                 "retry_count": r.retry_count, "error_message": r.error_message,
                 "created_at": r.created_at.isoformat(), "started_at": None, "finished_at": None,

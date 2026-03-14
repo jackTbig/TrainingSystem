@@ -8,7 +8,7 @@ const { Title, Text } = Typography
 
 interface JobRow {
   id: string; job_type: string; biz_label: string; biz_id: string | null
-  status: string; retry_count: number; error_message: string | null
+  description: string; status: string; retry_count: number; error_message: string | null
   created_at: string; started_at: string | null; finished_at: string | null
 }
 
@@ -59,8 +59,12 @@ export default function AsyncJobsPage() {
 
   const columns: ColumnsType<JobRow> = [
     {
-      title: '任务类型', dataIndex: 'biz_label', width: 110,
+      title: '类型', dataIndex: 'biz_label', width: 100,
       render: (v, r) => <Tag color="blue">{JOB_TYPE_LABEL[r.job_type] ?? v}</Tag>,
+    },
+    {
+      title: '任务描述', dataIndex: 'description', ellipsis: true,
+      render: (v) => <span style={{ fontSize: 13 }}>{v}</span>,
     },
     {
       title: '状态', dataIndex: 'status', width: 90,
@@ -72,7 +76,7 @@ export default function AsyncJobsPage() {
       render: (_, r) => duration(r.started_at, r.finished_at),
     },
     {
-      title: '错误信息', dataIndex: 'error_message', ellipsis: true,
+      title: '错误信息', dataIndex: 'error_message', ellipsis: true, width: 200,
       render: (v) => v ? (
         <Tooltip title={v}>
           <Text type="danger" style={{ fontSize: 12 }}>{v}</Text>
