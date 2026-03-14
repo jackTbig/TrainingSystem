@@ -37,6 +37,35 @@ function toTreeSelectData(nodes: any[]): any[] {
   return nodes.map(n => ({ title: n.name, value: n.id, children: n.children?.length ? toTreeSelectData(n.children) : undefined }))
 }
 
+function collectDescendantIds(nodes: any[], targetId: string): string[] {
+  for (const n of nodes) {
+    if (n.value === targetId) {
+      const ids: string[] = []
+      const collect = (children: any[]) => { children?.forEach(c => { ids.push(c.value); collect(c.children ?? []) }) }
+      collect(n.children ?? [])
+      return ids
+    }
+    const found = collectDescendantIds(n.children ?? [], targetId)
+    if (found.length > 0 || (n.children ?? []).some((c: any) => c.value === targetId)) return found
+  }
+  return []
+}
+
+function applyDownwardCascade(prev: string[], next: string[], tree: any[]): string[] {
+  const added = next.filter(id => !prev.includes(id))
+  const removed = prev.filter(id => !next.includes(id))
+  let result = [...next]
+  for (const id of added) {
+    const desc = collectDescendantIds(tree, id)
+    desc.forEach(d => { if (!result.includes(d)) result.push(d) })
+  }
+  for (const id of removed) {
+    const desc = collectDescendantIds(tree, id)
+    result = result.filter(r => !desc.includes(r))
+  }
+  return result
+}
+
 export default function CourseDetailPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const navigate = useNavigate()
@@ -250,7 +279,10 @@ export default function CourseDetailPage() {
             <TreeSelect
               treeData={kpTree}
               value={selectedKpIds}
-              onChange={(v: any) => setSelectedKpIds(Array.isArray(v) ? v.map((i: any) => i?.value ?? i) : [])}
+              onChange={(v: any) => {
+                const next = Array.isArray(v) ? v.map((i: any) => i?.value ?? i) : []
+                setSelectedKpIds(prev => applyDownwardCascade(prev, next, kpTree))
+              }}
               multiple
               treeCheckable
               treeCheckStrictly
