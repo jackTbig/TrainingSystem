@@ -1,12 +1,146 @@
 import { useEffect, useState } from 'react'
 import {
-  Button, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Table, Tag, TreeSelect, Typography, message,
+  Button, Card, Col, Descriptions, Drawer, Form, Input, InputNumber, Modal,
+  Row, Select, Space, Table, Tag, TreeSelect, Typography, message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { PlusOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { EyeOutlined, PlusOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import client from '@/api/client'
 
 const { Title, Text } = Typography
+
+interface QuestionDetail {
+  id: string; status: string; current_version_id: string | null
+  versions: {
+    id: string; version_no: number; question_type: string
+    stem: string; options: Record<string, any> | null
+    answer_json: Record<string, any> | null
+    analysis: string | null; difficulty_level: number | null; status: string
+  }[]
+}
+
+function QuestionDetailView({ detail }: { detail: QuestionDetail }) {
+  const ver = detail.versions.find(v => v.id === detail.current_version_id) ?? detail.versions[detail.versions.length - 1]
+  if (!ver) return <Text type="secondary">暂无版本</Text>
+
+  const opts = ver.options as Record<string, string> | null
+  const ans = ver.answer_json as Record<string, any> | null
+  const correctAnswer: string = ans?.answer ?? ''
+
+  return (
+    <div>
+      {/* 题干 */}
+      <div style={{ marginBottom: 16 }}>
+        <Text type="secondary" style={{ fontSize: 12 }}>题干</Text>
+        <div style={{ marginTop: 4, fontSize: 15, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{ver.stem}</div>
+      </div>
+
+      {/* 选项 */}
+      {(ver.question_type === 'single_choice' || ver.question_type === 'multi_choice') && opts && (
+        <div style={{ marginBottom: 16 }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>选项</Text>
+          <div style={{ marginTop: 4 }}>
+            {Object.entries(opts).map(([key, val]) => {
+              const isCorrect = correctAnswer.toUpperCase().includes(key.toUpperCase())
+              return (
+                <div key={key} style={{
+                  padding: '6px 12px', marginBottom: 6, borderRadius: 4,
+                  background: isCorrect ? '#f6ffed' : '#fafafa',
+                  border: `1px solid ${isCorrect ? '#b7eb8f' : '#f0f0f0'}`,
+                }}>
+                  <Text strong style={{ color: isCorrect ? '#52c41a' : undefined }}>{key}. </Text>
+                  <Text style={{ color: isCorrect ? '#52c41a' : undefined }}>{val}</Text>
+                  {isCorrect && <Tag color="success" style={{ marginLeft: 8, fontSize: 11 }}>正确答案</Tag>}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 判断题 */}
+      {ver.question_type === 'true_false' && (
+        <div style={{ marginBottom: 16 }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>正确答案</Text>
+          <div style={{ marginTop: 4 }}>
+            <Tag color={correctAnswer === 'true' ? 'success' : 'error'} style={{ fontSize: 13, padding: '2px 12px' }}>
+              {correctAnswer === 'true' ? '✓ 正确' : '✗ 错误'}
+            </Tag>
+          </div>
+        </div>
+      )}
+
+      {/* 填空 / 简答 */}
+      {(ver.question_type === 'fill_blank' || ver.question_type === 'short_answer') && (
+        <div style={{ marginBottom: 16 }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>参考答案</Text>
+          <div style={{ marginTop: 4, background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 4, padding: '8px 12px', whiteSpace: 'pre-wrap' }}>
+            {ans?.answer ?? '—'}
+          </div>
+        </div>
+      )}
+
+      {/* 连线题 */}
+      {ver.question_type === 'matching' && opts && (
+        <div style={{ marginBottom: 16 }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>配对关系（左→右）</Text>
+          <div style={{ marginTop: 4 }}>
+            {(opts.left as string[] ?? []).map((l: string, i: number) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <div style={{ flex: 1, background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 4, padding: '4px 10px' }}>{l}</div>
+                <Text type="secondary">→</Text>
+                <div style={{ flex: 1, background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 4, padding: '4px 10px' }}>
+                  {(opts.right as string[])?.[i] ?? '—'}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* AI 判卷 */}
+      {ver.question_type === 'ai_graded' && (
+        <>
+          <div style={{ marginBottom: 12 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>评分标准</Text>
+            <div style={{ marginTop: 4, background: '#fafafa', borderRadius: 4, padding: '8px 12px', whiteSpace: 'pre-wrap' }}>
+              {ans?.scoring_criteria ?? '—'}
+            </div>
+          </div>
+          <div style={{ marginBottom: 16 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>参考答案</Text>
+            <div style={{ marginTop: 4, background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 4, padding: '8px 12px', whiteSpace: 'pre-wrap' }}>
+              {ans?.reference_answer ?? '—'}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 解析 */}
+      {ver.analysis && (
+        <div style={{ marginBottom: 16 }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>解析</Text>
+          <div style={{ marginTop: 4, background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: 4, padding: '8px 12px', whiteSpace: 'pre-wrap' }}>
+            {ver.analysis}
+          </div>
+        </div>
+      )}
+
+      {/* 元信息 */}
+      <Descriptions size="small" column={2} style={{ marginTop: 8 }}>
+        <Descriptions.Item label="难度">
+          {ver.difficulty_level
+            ? <span style={{ color: '#faad14' }}>{'★'.repeat(ver.difficulty_level)}{'☆'.repeat(5 - ver.difficulty_level)}</span>
+            : '—'}
+        </Descriptions.Item>
+        <Descriptions.Item label="版本状态">
+          <Tag color={ver.status === 'published' ? 'success' : 'default'}>{ver.status}</Tag>
+        </Descriptions.Item>
+        <Descriptions.Item label="版本号">v{ver.version_no}</Descriptions.Item>
+      </Descriptions>
+    </div>
+  )
+}
 
 interface QuestionRow {
   id: string; status: string; current_version_id: string | null; created_at: string
@@ -81,6 +215,7 @@ export default function QuestionsPage() {
   const qType = Form.useWatch('question_type', form)
   const [kpTree, setKpTree] = useState<any[]>([])
   const [selectedKpIds, setSelectedKpIds] = useState<string[]>([])
+  const [detailDrawer, setDetailDrawer] = useState<{ open: boolean; data: QuestionDetail | null; loading: boolean }>({ open: false, data: null, loading: false })
 
   const fetchData = async (p = page, s = statusFilter, t = typeFilter) => {
     setLoading(true)
@@ -165,6 +300,17 @@ export default function QuestionsPage() {
     }
   }
 
+  const openDetail = async (id: string) => {
+    setDetailDrawer({ open: true, data: null, loading: true })
+    try {
+      const res = await client.get(`/questions/${id}`)
+      setDetailDrawer({ open: true, data: res.data.data, loading: false })
+    } catch {
+      message.error('加载失败')
+      setDetailDrawer({ open: false, data: null, loading: false })
+    }
+  }
+
   const STATUS_COLOR: Record<string, string> = { draft: 'default', published: 'success', archived: 'warning' }
 
   const columns: ColumnsType<QuestionRow> = [
@@ -189,23 +335,26 @@ export default function QuestionsPage() {
       render: (v) => new Date(v).toLocaleString('zh-CN'),
     },
     {
-      title: '操作', width: 80,
+      title: '操作', width: 120,
       render: (_, row) => (
-        <Button size="small" danger onClick={() => {
-          Modal.confirm({
-            title: '确认删除此题目？',
-            content: '已被试卷引用的题目无法删除。',
-            onOk: async () => {
-              try {
-                await client.delete(`/questions/${row.id}`)
-                message.success('已删除')
-                fetchData()
-              } catch (e: any) {
-                message.error(e?.response?.data?.message || '删除失败')
-              }
-            },
-          })
-        }}>删除</Button>
+        <Space size={4}>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(row.id)}>查看</Button>
+          <Button size="small" danger onClick={() => {
+            Modal.confirm({
+              title: '确认删除此题目？',
+              content: '已被试卷引用的题目无法删除。',
+              onOk: async () => {
+                try {
+                  await client.delete(`/questions/${row.id}`)
+                  message.success('已删除')
+                  fetchData()
+                } catch (e: any) {
+                  message.error(e?.response?.data?.message || '删除失败')
+                }
+              },
+            })
+          }}>删除</Button>
+        </Space>
       ),
     },
   ]
@@ -385,6 +534,23 @@ export default function QuestionsPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <Drawer
+        title={
+          <Space>
+            <span>题目详情</span>
+            {detailDrawer.data && (
+              <Tag color="blue">{TYPE_LABEL[detailDrawer.data.versions[detailDrawer.data.versions.length - 1]?.question_type] ?? '—'}</Tag>
+            )}
+          </Space>
+        }
+        open={detailDrawer.open}
+        onClose={() => setDetailDrawer({ open: false, data: null, loading: false })}
+        width={520}
+        loading={detailDrawer.loading}
+      >
+        {detailDrawer.data && <QuestionDetailView detail={detailDrawer.data} />}
+      </Drawer>
     </div>
   )
 }

@@ -84,6 +84,25 @@ class CourseService:
             from datetime import datetime, timezone
             updates["published_at"] = datetime.now(timezone.utc)
         await self.ver_repo.update(ver, **updates)
+        # 提交审核时，若尚无待审核任务则自动创建
+        if status == "pending_review":
+            from sqlalchemy import select
+            from app.models.review import ReviewTask
+            existing = (await self.db.execute(
+                select(ReviewTask).where(
+                    ReviewTask.content_type == "course_version",
+                    ReviewTask.content_version_id == version_id,
+                    ReviewTask.status.in_(["pending", "in_review"]),
+                )
+            )).scalar_one_or_none()
+            if not existing:
+                rt = ReviewTask(
+                    content_type="course_version",
+                    content_id=ver.course_id,
+                    content_version_id=version_id,
+                    review_stage="initial",
+                )
+                self.db.add(rt)
         await self.db.commit()
         return CourseVersionOut.model_validate(ver)
 

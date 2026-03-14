@@ -220,9 +220,20 @@ export default function CourseDetailPage() {
   }
 
   const handleSubmitReview = async () => {
-    if (!activeVersion) return
-    await coursesApi.updateVersionStatus(activeVersion.id, 'pending_review')
-    message.success('已提交审核')
+    if (!activeVersion || !courseId) return
+    try {
+      await coursesApi.updateVersionStatus(activeVersion.id, 'pending_review')
+      // 同步创建审核任务，审核员才能在"内容审核"页面看到
+      await client.post('/reviews', {
+        content_type: 'course_version',
+        content_id: courseId,
+        content_version_id: activeVersion.id,
+        review_stage: 'initial',
+      })
+      message.success('已提交审核，请在「内容审核」页面跟进')
+    } catch {
+      message.error('提交失败，请重试')
+    }
     load()
   }
 

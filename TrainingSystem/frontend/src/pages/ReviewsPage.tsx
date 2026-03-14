@@ -1,23 +1,37 @@
+import '@uiw/react-markdown-preview/markdown.css'
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
-  Button, Card, Col, Descriptions, Form, Input, Modal, Row, Select, Space,
-  Table, Tag, Typography, message,
+  Button, Card, Col, Collapse, Descriptions, Form, Input, Modal, Row, Select, Space,
+  Spin, Table, Tag, Typography, message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { CheckOutlined, CloseOutlined, ReloadOutlined } from '@ant-design/icons'
+import { CheckOutlined, CloseOutlined, LinkOutlined, ReloadOutlined } from '@ant-design/icons'
+import MDEditor from '@uiw/react-md-editor'
 import client from '@/api/client'
 
 const { Title, Text } = Typography
 
 interface ReviewRow {
-  id: string; content_type: string; content_id: string; content_title: string | null
-  content_version_id: string; review_stage: string; status: string; created_at: string
+  id: string
+  content_type: string
+  content_id: string
+  content_title: string | null
+  content_description: string | null
+  content_version_id: string
+  review_stage: string
+  status: string
+  created_at: string
 }
 
 interface ReviewDetail {
-  id: string; content_type: string; content_id: string; status: string; review_stage: string
+  id: string; content_type: string; content_id: string
+  content_version_id: string; status: string; review_stage: string
   comments: { id: string; comment_type: string; content: string; action_suggestion: string; created_at: string }[]
 }
+
+interface CourseChapter { id: string; chapter_no: number; title: string; content: string; estimated_duration_minutes: number | null }
+interface CourseVersionDetail { id: string; version_no: number; title: string; summary: string | null; status: string; chapters: CourseChapter[] }
 
 const STATUS_COLOR: Record<string, string> = {
   pending: 'processing', in_review: 'blue', approved: 'success', rejected: 'error',
@@ -30,24 +44,29 @@ const TYPE_LABEL: Record<string, string> = {
 }
 
 export default function ReviewsPage() {
+  const navigate = useNavigate()
   const [rows, setRows] = useState<ReviewRow[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
-  const [statusFilter, setStatusFilter] = useState<string | undefined>()
+  const [statusFilter, setStatusFilter] = useState<string>('pending')
+  const [typeFilter, setTypeFilter] = useState<string | undefined>()
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
   const [detail, setDetail] = useState<ReviewDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+  const [versionContent, setVersionContent] = useState<CourseVersionDetail | null>(null)
+  const [contentLoading, setContentLoading] = useState(false)
   const [actionModal, setActionModal] = useState<{ open: boolean; action: 'approve' | 'reject'; batch: boolean } | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
   const [form] = Form.useForm()
 
-  const fetchData = async (p = page, s = statusFilter) => {
+  const fetchData = async (p = page, s = statusFilter, t = typeFilter) => {
     setLoading(true)
     try {
       const params: Record<string, unknown> = { page: p, page_size: 20 }
-      if (s) params.status = s
+      if (s && s !== 'all') params.status = s
+      if (t && t !== 'all') params.content_type = t
       const res = await client.get('/reviews', { params })
       setRows(res.data.data.items)
       setTotal(res.data.data.total)
@@ -56,15 +75,26 @@ export default function ReviewsPage() {
     }
   }
 
-  useEffect(() => { fetchData() }, [page, statusFilter])
+  useEffect(() => { fetchData() }, [page, statusFilter, typeFilter])
 
-  const loadDetail = async (id: string) => {
+  const loadDetail = async (row: ReviewRow) => {
+    setVersionContent(null)
     setDetailLoading(true)
     try {
-      const res = await client.get(`/reviews/${id}`)
+      const res = await client.get(`/reviews/${row.id}`)
       setDetail(res.data.data)
     } finally {
       setDetailLoading(false)
+    }
+    // 同步加载审核内容
+    if (row.content_type === 'course_version') {
+      setContentLoading(true)
+      try {
+        const res = await client.get(`/courses/versions/${row.content_version_id}`)
+        setVersionContent(res.data.data)
+      } finally {
+        setContentLoading(false)
+      }
     }
   }
 
@@ -81,11 +111,7 @@ export default function ReviewsPage() {
     setActionLoading(true)
     try {
       if (isBatch) {
-        const res = await client.post('/reviews/batch-action', {
-          task_ids: selectedRowKeys,
-          action,
-          comment,
-        })
+        const res = await client.post('/reviews/batch-action', { task_ids: selectedRowKeys, action, comment })
         message.success(res.data.message || '批量操作完成')
         setSelectedRowKeys([])
       } else {
@@ -106,32 +132,41 @@ export default function ReviewsPage() {
 
   const columns: ColumnsType<ReviewRow> = [
     {
-      title: '类型', dataIndex: 'content_type', width: 100,
+      title: '类型', dataIndex: 'content_type', width: 90,
       render: (v) => <Tag>{TYPE_LABEL[v] ?? v}</Tag>,
     },
     {
-      title: '内容标题', dataIndex: 'content_title', ellipsis: true,
-      render: (v, row) => v ? <span>{v}</span> : <Text code style={{ fontSize: 11 }}>{row.content_id.slice(0, 8)}…</Text>,
+      title: '审核内容', ellipsis: true,
+      render: (_, row) => (
+        <div>
+          <div style={{ fontWeight: 500, marginBottom: 2 }}>
+            {row.content_title || <Text type="secondary" style={{ fontSize: 12 }}>ID: {row.content_id.slice(0, 8)}…</Text>}
+          </div>
+          {row.content_description && (
+            <div style={{ color: '#888', fontSize: 12 }}>{row.content_description}</div>
+          )}
+        </div>
+      ),
     },
     {
       title: '状态', dataIndex: 'status', width: 90,
       render: (s) => <Tag color={STATUS_COLOR[s]}>{STATUS_LABEL[s] ?? s}</Tag>,
     },
     {
-      title: '创建时间', dataIndex: 'created_at', width: 150,
+      title: '提交时间', dataIndex: 'created_at', width: 140,
       render: (v) => new Date(v).toLocaleString('zh-CN'),
     },
     {
-      title: '操作', width: 140,
+      title: '操作', width: 130,
       render: (_, row) => (
         <Space size={4}>
-          <Button size="small" type="link" onClick={() => loadDetail(row.id)}>详情</Button>
+          <Button size="small" type="link" style={{ padding: 0 }} onClick={() => loadDetail(row)}>查看</Button>
           {(row.status === 'pending' || row.status === 'in_review') && (
             <>
               <Button size="small" type="primary" icon={<CheckOutlined />}
-                onClick={() => openAction('approve', row.id)}>通过</Button>
+                onClick={() => { loadDetail(row); openAction('approve', row.id) }}>通过</Button>
               <Button size="small" danger icon={<CloseOutlined />}
-                onClick={() => openAction('reject', row.id)}>驳回</Button>
+                onClick={() => { loadDetail(row); openAction('reject', row.id) }}>驳回</Button>
             </>
           )}
         </Space>
@@ -139,16 +174,30 @@ export default function ReviewsPage() {
     },
   ]
 
+  const selectedRow = rows.find(r => r.id === detail?.id)
+
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>审核任务</Title>
+        <Title level={4} style={{ margin: 0 }}>内容审核</Title>
         <Space>
           <Select
-            placeholder="状态筛选" allowClear style={{ width: 120 }}
-            value={statusFilter}
-            onChange={(v) => { setStatusFilter(v); setPage(1) }}
-            options={Object.entries(STATUS_LABEL).map(([k, v]) => ({ value: k, label: v }))}
+            style={{ width: 110 }}
+            value={typeFilter || 'all'}
+            onChange={(v) => { setTypeFilter(v === 'all' ? undefined : v); setPage(1) }}
+            options={[
+              { value: 'all', label: '全部类型' },
+              ...Object.entries(TYPE_LABEL).map(([k, v]) => ({ value: k, label: v })),
+            ]}
+          />
+          <Select
+            style={{ width: 110 }}
+            value={statusFilter || 'all'}
+            onChange={(v) => { setStatusFilter(v === 'all' ? '' : v); setPage(1) }}
+            options={[
+              { value: 'all', label: '全部状态' },
+              ...Object.entries(STATUS_LABEL).map(([k, v]) => ({ value: k, label: v })),
+            ]}
           />
           <Button icon={<ReloadOutlined />} onClick={() => fetchData()}>刷新</Button>
         </Space>
@@ -165,7 +214,7 @@ export default function ReviewsPage() {
       )}
 
       <Row gutter={16}>
-        <Col span={detail ? 14 : 24}>
+        <Col span={detail ? 10 : 24}>
           <Table
             rowKey="id"
             columns={columns}
@@ -177,32 +226,109 @@ export default function ReviewsPage() {
               onChange: setSelectedRowKeys,
               getCheckboxProps: (row) => ({ disabled: row.status !== 'pending' && row.status !== 'in_review' }),
             }}
-            onRow={(row) => ({ onClick: () => loadDetail(row.id), style: { cursor: 'pointer' } })}
+            onRow={(row) => ({
+              onClick: () => loadDetail(row),
+              style: { cursor: 'pointer', background: detail?.id === row.id ? '#e6f7ff' : undefined },
+            })}
             pagination={{ current: page, pageSize: 20, total, onChange: (p) => setPage(p), showTotal: (t) => `共 ${t} 条` }}
           />
         </Col>
 
         {detail && (
-          <Col span={10}>
+          <Col span={14}>
             <Card
-              title="审核详情"
-              extra={<Button size="small" onClick={() => setDetail(null)}>关闭</Button>}
+              title={
+                <Space>
+                  <span>审核详情</span>
+                  {selectedRow?.content_type === 'course_version' && (
+                    <Button
+                      size="small" type="link" icon={<LinkOutlined />}
+                      onClick={() => navigate(`/courses/${detail.content_id}`)}
+                    >
+                      打开课程
+                    </Button>
+                  )}
+                </Space>
+              }
+              extra={
+                <Space>
+                  {(detail.status === 'pending' || detail.status === 'in_review') && (
+                    <>
+                      <Button type="primary" icon={<CheckOutlined />} size="small"
+                        onClick={() => openAction('approve', detail.id)}>通过</Button>
+                      <Button danger icon={<CloseOutlined />} size="small"
+                        onClick={() => openAction('reject', detail.id)}>驳回</Button>
+                    </>
+                  )}
+                  <Button size="small" onClick={() => { setDetail(null); setVersionContent(null) }}>关闭</Button>
+                </Space>
+              }
               loading={detailLoading}
+              style={{ maxHeight: 'calc(100vh - 180px)', overflowY: 'auto' }}
             >
-              <Descriptions column={1} size="small" style={{ marginBottom: 12 }}>
+              {/* 基本信息 */}
+              <Descriptions column={2} size="small" style={{ marginBottom: 12 }}>
                 <Descriptions.Item label="类型">{TYPE_LABEL[detail.content_type] ?? detail.content_type}</Descriptions.Item>
-                <Descriptions.Item label="内容ID">
-                  <Text code style={{ fontSize: 11 }}>{detail.content_id}</Text>
-                </Descriptions.Item>
-                <Descriptions.Item label="阶段">{detail.review_stage}</Descriptions.Item>
                 <Descriptions.Item label="状态">
                   <Tag color={STATUS_COLOR[detail.status]}>{STATUS_LABEL[detail.status] ?? detail.status}</Tag>
                 </Descriptions.Item>
+                <Descriptions.Item label="审核内容" span={2}>
+                  <Text strong>{selectedRow?.content_title}</Text>
+                  {selectedRow?.content_description && (
+                    <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>{selectedRow.content_description}</Text>
+                  )}
+                </Descriptions.Item>
               </Descriptions>
 
+              {/* 课程版本内容 */}
+              {detail.content_type === 'course_version' && (
+                <div style={{ marginBottom: 16 }}>
+                  <Text strong style={{ display: 'block', marginBottom: 8 }}>课程章节内容</Text>
+                  {contentLoading ? (
+                    <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
+                  ) : versionContent ? (
+                    versionContent.chapters.length === 0 ? (
+                      <div style={{ color: '#999', padding: '12px 0' }}>此版本暂无章节内容</div>
+                    ) : (
+                      <>
+                        {/* 章节目录 */}
+                        <div style={{ background: '#fafafa', border: '1px solid #f0f0f0', borderRadius: 6, padding: '10px 16px', marginBottom: 12 }}>
+                          <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>章节目录（共 {versionContent.chapters.length} 章）</Text>
+                          {versionContent.chapters.map(ch => (
+                            <div key={ch.id} style={{ padding: '2px 0', fontSize: 13 }}>
+                              <Text>第 {ch.chapter_no} 章：{ch.title}</Text>
+                              {ch.estimated_duration_minutes && (
+                                <Text type="secondary" style={{ fontSize: 12, marginLeft: 8 }}>约 {ch.estimated_duration_minutes} 分钟</Text>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                        {/* 章节内容（默认全部展开） */}
+                        <Collapse
+                          size="small"
+                          defaultActiveKey={versionContent.chapters.map(ch => ch.id)}
+                          items={versionContent.chapters.map(ch => ({
+                            key: ch.id,
+                            label: (
+                              <Text strong>第 {ch.chapter_no} 章：{ch.title}</Text>
+                            ),
+                            children: (
+                              <div data-color-mode="light">
+                                <MDEditor.Markdown source={ch.content} style={{ padding: '4px 8px' }} />
+                              </div>
+                            ),
+                          }))}
+                        />
+                      </>
+                    )
+                  ) : null}
+                </div>
+              )}
+
+              {/* 历史审核意见 */}
               {detail.comments.length > 0 && (
-                <>
-                  <Text strong style={{ display: 'block', marginBottom: 8 }}>审核意见</Text>
+                <div>
+                  <Text strong style={{ display: 'block', marginBottom: 8 }}>历史审核意见</Text>
                   {detail.comments.map(c => (
                     <div key={c.id} style={{ background: '#f5f5f5', borderRadius: 4, padding: '8px 12px', marginBottom: 8 }}>
                       <Tag color={c.action_suggestion === 'approve' ? 'success' : 'error'} style={{ marginBottom: 4 }}>
@@ -212,16 +338,7 @@ export default function ReviewsPage() {
                       <Text type="secondary" style={{ fontSize: 11 }}>{new Date(c.created_at).toLocaleString('zh-CN')}</Text>
                     </div>
                   ))}
-                </>
-              )}
-
-              {(detail.status === 'pending' || detail.status === 'in_review') && (
-                <Space style={{ marginTop: 8 }}>
-                  <Button type="primary" icon={<CheckOutlined />} size="small"
-                    onClick={() => openAction('approve', detail.id)}>通过</Button>
-                  <Button danger icon={<CloseOutlined />} size="small"
-                    onClick={() => openAction('reject', detail.id)}>驳回</Button>
-                </Space>
+                </div>
               )}
             </Card>
           </Col>
@@ -229,7 +346,9 @@ export default function ReviewsPage() {
       </Row>
 
       <Modal
-        title={actionModal?.action === 'approve' ? (actionModal.batch ? '批量通过' : '通过审核') : (actionModal?.batch ? '批量驳回' : '驳回审核')}
+        title={actionModal?.action === 'approve'
+          ? (actionModal.batch ? '批量通过' : '通过审核')
+          : (actionModal?.batch ? '批量驳回' : '驳回审核')}
         open={actionModal?.open}
         onCancel={() => { setActionModal(null); form.resetFields() }}
         footer={null}
@@ -240,7 +359,7 @@ export default function ReviewsPage() {
             name="comment"
             rules={actionModal?.action === 'reject' ? [{ required: true, message: '请填写驳回原因' }] : []}
           >
-            <Input.TextArea rows={3} placeholder={actionModal?.action === 'reject' ? '请说明驳回原因...' : '请输入审核意见...'} />
+            <Input.TextArea rows={3} placeholder={actionModal?.action === 'reject' ? '请说明驳回原因...' : '请输入审核意见（可选）...'} />
           </Form.Item>
           <Form.Item style={{ textAlign: 'right', marginBottom: 0 }}>
             <Space>

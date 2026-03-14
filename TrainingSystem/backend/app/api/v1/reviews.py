@@ -32,33 +32,48 @@ async def list_review_tasks(
     q = q.order_by(ReviewTask.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
     rows = list((await db.execute(q)).scalars().all())
 
-    # Resolve content title for display
-    from app.models.course import Course, CourseVersion
+    from app.models.course import Course, CourseVersion, CourseChapter
     from app.models.question import Question, QuestionVersion
     from app.models.knowledge import KnowledgePoint
 
-    async def get_content_title(content_type: str, content_id: uuid.UUID) -> str | None:
+    async def get_content_info(content_type: str, content_id: uuid.UUID, content_version_id: uuid.UUID) -> dict:
+        """返回 title 和 description（面向审核员的一行摘要）。"""
         if content_type == "course_version":
-            cv = (await db.execute(select(CourseVersion).where(CourseVersion.id == content_id))).scalar_one_or_none()
+            cv = (await db.execute(
+                select(CourseVersion).where(CourseVersion.id == content_version_id)
+            )).scalar_one_or_none()
             if cv:
                 c = (await db.execute(select(Course).where(Course.id == cv.course_id))).scalar_one_or_none()
-                return c.title if c else None
+                chapter_count = (await db.execute(
+                    select(func.count()).select_from(CourseChapter).where(CourseChapter.course_version_id == content_version_id)
+                )).scalar_one()
+                title = c.title if c else "未知课程"
+                desc = f"版本 v{cv.version_no} · {cv.title} · 共 {chapter_count} 章节"
+                if cv.summary:
+                    desc += f" · {cv.summary[:40]}"
+                return {"title": title, "description": desc, "version_no": cv.version_no, "chapter_count": chapter_count}
         elif content_type == "question_version":
-            qv = (await db.execute(select(QuestionVersion).where(QuestionVersion.id == content_id))).scalar_one_or_none()
+            qv = (await db.execute(select(QuestionVersion).where(QuestionVersion.id == content_version_id))).scalar_one_or_none()
             if qv:
                 q2 = (await db.execute(select(Question).where(Question.id == qv.question_id))).scalar_one_or_none()
-                return (q2.stem[:60] + "…") if q2 and len(q2.stem) > 60 else (q2.stem if q2 else None)
+                stem = q2.stem if q2 else ""
+                title = (stem[:60] + "…") if len(stem) > 60 else stem
+                desc = f"版本 v{qv.version_no} · 题型：{q2.question_type if q2 else '—'}"
+                return {"title": title, "description": desc}
         elif content_type == "knowledge_point":
             kp = (await db.execute(select(KnowledgePoint).where(KnowledgePoint.id == content_id))).scalar_one_or_none()
-            return kp.name if kp else None
-        return None
+            if kp:
+                desc = kp.description or '无描述'
+                return {"title": kp.name, "description": f"知识点 · {desc[:60] + '…' if len(desc) > 60 else desc}"}
+        return {"title": None, "description": None}
 
     items = []
     for r in rows:
-        title = await get_content_title(r.content_type, r.content_id)
+        info = await get_content_info(r.content_type, r.content_id, r.content_version_id)
         items.append({
             "id": str(r.id), "content_type": r.content_type, "content_id": str(r.content_id),
-            "content_title": title,
+            "content_title": info.get("title"),
+            "content_description": info.get("description"),
             "content_version_id": str(r.content_version_id), "review_stage": r.review_stage,
             "status": r.status, "assigned_reviewer_id": str(r.assigned_reviewer_id) if r.assigned_reviewer_id else None,
             "created_at": r.created_at.isoformat(),

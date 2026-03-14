@@ -22,18 +22,38 @@ async def list_training_tasks(
     _: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
+    from app.models.course import Course, CourseVersion
+    from app.models.exam import Exam
+
     q = select(TrainingTask)
     if status:
         q = q.where(TrainingTask.status == status)
     total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
     q = q.order_by(TrainingTask.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
     rows = list((await db.execute(q)).scalars().all())
-    return paginated_response(
-        items=[{"id": str(r.id), "title": r.title, "status": r.status,
-                "due_at": r.due_at.isoformat() if r.due_at else None,
-                "created_at": r.created_at.isoformat()} for r in rows],
-        total=total, page=page, page_size=page_size,
-    )
+
+    items = []
+    for r in rows:
+        course_title = None
+        if r.course_version_id:
+            cv = (await db.execute(select(CourseVersion).where(CourseVersion.id == r.course_version_id))).scalar_one_or_none()
+            if cv:
+                c = (await db.execute(select(Course).where(Course.id == cv.course_id))).scalar_one_or_none()
+                course_title = f"{c.title} v{cv.version_no}" if c else None
+        exam_title = None
+        if r.exam_id:
+            exam = (await db.execute(select(Exam).where(Exam.id == r.exam_id))).scalar_one_or_none()
+            exam_title = exam.title if exam else None
+        items.append({
+            "id": str(r.id), "title": r.title, "status": r.status,
+            "course_version_id": str(r.course_version_id) if r.course_version_id else None,
+            "exam_id": str(r.exam_id) if r.exam_id else None,
+            "course_title": course_title,
+            "exam_title": exam_title,
+            "due_at": r.due_at.isoformat() if r.due_at else None,
+            "created_at": r.created_at.isoformat(),
+        })
+    return paginated_response(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.post("", response_model=dict, summary="创建培训任务")
@@ -57,6 +77,46 @@ async def create_training_task(
     return success_response(data={"id": str(task.id), "title": task.title, "status": task.status})
 
 
+# NOTE: /my must be defined BEFORE /{task_id} to avoid being swallowed by the path param route
+@router.get("/my", response_model=dict, summary="我的培训任务列表（学员端）")
+async def my_training_tasks(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    user_id: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    """返回当前用户被分配的培训任务及进度。"""
+    uid = uuid.UUID(user_id)
+    q = select(TrainingAssignment).where(TrainingAssignment.user_id == uid)
+    total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
+    q = q.order_by(TrainingAssignment.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    assignments = list((await db.execute(q)).scalars())
+
+    items = []
+    for asgn in assignments:
+        task_result = await db.execute(select(TrainingTask).where(TrainingTask.id == asgn.training_task_id))
+        task = task_result.scalar_one_or_none()
+        if not task:
+            continue
+        prog_result = await db.execute(
+            select(StudyProgress).where(StudyProgress.training_assignment_id == asgn.id)
+        )
+        prog = prog_result.scalar_one_or_none()
+        items.append({
+            "assignment_id": str(asgn.id),
+            "task_id": str(task.id),
+            "title": task.title,
+            "description": task.description,
+            "course_version_id": str(task.course_version_id) if task.course_version_id else None,
+            "exam_id": str(task.exam_id) if task.exam_id else None,
+            "due_at": task.due_at.isoformat() if task.due_at else None,
+            "assignment_status": asgn.assignment_status,
+            "progress_percent": prog.progress_percent if prog else 0,
+            "completed": prog.completed if prog else False,
+        })
+    return paginated_response(items=items, total=total, page=page, page_size=page_size)
+
+
 @router.get("/{task_id}", response_model=dict, summary="培训任务详情（含分配列表和进度）")
 async def get_training_task(
     task_id: uuid.UUID,
@@ -64,12 +124,27 @@ async def get_training_task(
     db: AsyncSession = Depends(get_db),
 ):
     from app.models.user import User
-    from app.models.exam import ExamAttempt
+    from app.models.exam import Exam, ExamAttempt
+    from app.models.course import Course, CourseVersion
 
     result = await db.execute(select(TrainingTask).where(TrainingTask.id == task_id))
     task = result.scalar_one_or_none()
     if not task:
         raise NotFoundException(code="TASK_NOT_FOUND", message="培训任务不存在")
+
+    # Resolve course title
+    course_title = None
+    if task.course_version_id:
+        cv = (await db.execute(select(CourseVersion).where(CourseVersion.id == task.course_version_id))).scalar_one_or_none()
+        if cv:
+            c = (await db.execute(select(Course).where(Course.id == cv.course_id))).scalar_one_or_none()
+            course_title = f"{c.title} v{cv.version_no}" if c else None
+
+    # Resolve exam title
+    exam_title = None
+    if task.exam_id:
+        exam = (await db.execute(select(Exam).where(Exam.id == task.exam_id))).scalar_one_or_none()
+        exam_title = exam.title if exam else None
 
     # 所有分配记录
     asgn_rows = list((await db.execute(
@@ -111,6 +186,8 @@ async def get_training_task(
         "status": task.status,
         "course_version_id": str(task.course_version_id) if task.course_version_id else None,
         "exam_id": str(task.exam_id) if task.exam_id else None,
+        "course_title": course_title,
+        "exam_title": exam_title,
         "due_at": task.due_at.isoformat() if task.due_at else None,
         "allow_makeup_exam": task.allow_makeup_exam,
         "created_at": task.created_at.isoformat(),
@@ -229,45 +306,6 @@ async def assign_users(
             created += 1
     await db.commit()
     return success_response(data={"assigned": created}, message=f"已分配 {created} 名学员")
-
-
-@router.get("/my", response_model=dict, summary="我的培训任务列表（学员端）")
-async def my_training_tasks(
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
-    user_id: str = Depends(get_current_user_id),
-    db: AsyncSession = Depends(get_db),
-):
-    """返回当前用户被分配的培训任务及进度。"""
-    uid = uuid.UUID(user_id)
-    q = select(TrainingAssignment).where(TrainingAssignment.user_id == uid)
-    total = (await db.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
-    q = q.order_by(TrainingAssignment.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
-    assignments = list((await db.execute(q)).scalars())
-
-    items = []
-    for asgn in assignments:
-        task_result = await db.execute(select(TrainingTask).where(TrainingTask.id == asgn.training_task_id))
-        task = task_result.scalar_one_or_none()
-        if not task:
-            continue
-        prog_result = await db.execute(
-            select(StudyProgress).where(StudyProgress.training_assignment_id == asgn.id)
-        )
-        prog = prog_result.scalar_one_or_none()
-        items.append({
-            "assignment_id": str(asgn.id),
-            "task_id": str(task.id),
-            "title": task.title,
-            "description": task.description,
-            "course_version_id": str(task.course_version_id) if task.course_version_id else None,
-            "exam_id": str(task.exam_id) if task.exam_id else None,
-            "due_at": task.due_at.isoformat() if task.due_at else None,
-            "assignment_status": asgn.assignment_status,
-            "progress_percent": prog.progress_percent if prog else 0,
-            "completed": prog.completed if prog else False,
-        })
-    return paginated_response(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.post("/assignments/{assignment_id}/progress", response_model=dict, summary="更新学习进度")

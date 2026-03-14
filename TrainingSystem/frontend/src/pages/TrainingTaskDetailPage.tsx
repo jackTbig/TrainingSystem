@@ -5,7 +5,7 @@ import {
   Row, Select, Space, Statistic, Table, Tag, Typography, message,
 } from 'antd'
 import {
-  ArrowLeftOutlined, PlusOutlined, DeleteOutlined, UserOutlined,
+  ArrowLeftOutlined, PlusOutlined, DeleteOutlined, UserOutlined, BookOutlined,
 } from '@ant-design/icons'
 import client from '../api/client'
 
@@ -31,6 +31,8 @@ interface TaskDetail {
   status: string
   course_version_id: string | null
   exam_id: string | null
+  course_title: string | null
+  exam_title: string | null
   due_at: string | null
   allow_makeup_exam: boolean
   created_at: string
@@ -79,8 +81,12 @@ export default function TrainingTaskDetailPage() {
   useEffect(() => { fetchTask() }, [taskId])
 
   const openAssign = async () => {
-    const res = await client.get('/users', { params: { page: 1, page_size: 200 } })
-    setAllUsers(res.data.data.items)
+    try {
+      const res = await client.get('/users', { params: { page: 1, page_size: 200 } })
+      setAllUsers(res.data.data.items)
+    } catch {
+      setAllUsers([])
+    }
     setSelectedUsers([])
     setAssignOpen(true)
   }
@@ -93,8 +99,8 @@ export default function TrainingTaskDetailPage() {
       message.success(`已分配 ${selectedUsers.length} 名学员`)
       setAssignOpen(false)
       fetchTask()
-    } catch {
-      message.error('分配失败')
+    } catch (e: any) {
+      message.error(e?.response?.data?.message || '分配失败')
     } finally {
       setAssigning(false)
     }
@@ -113,7 +119,7 @@ export default function TrainingTaskDetailPage() {
 
   const columns = [
     {
-      title: '姓名', dataIndex: 'real_name', width: 100,
+      title: '姓名', dataIndex: 'real_name', width: 120,
       render: (v: string, row: Assignment) => `${v || ''}（${row.username}）`,
     },
     {
@@ -128,7 +134,7 @@ export default function TrainingTaskDetailPage() {
       render: (v: number) => <Progress percent={v} size="small" />,
     },
     {
-      title: '考试成绩', dataIndex: 'exam_score', width: 120,
+      title: '考试成绩', dataIndex: 'exam_score', width: 130,
       render: (v: number | null, row: Assignment) =>
         v == null ? '—' : (
           <Space>
@@ -138,7 +144,7 @@ export default function TrainingTaskDetailPage() {
         ),
     },
     {
-      title: '完成学习时间', dataIndex: 'study_completed_at', width: 160,
+      title: '完成学习时间', dataIndex: 'study_completed_at', width: 150,
       render: (v: string | null) => v ? new Date(v).toLocaleString('zh-CN') : '—',
     },
     {
@@ -155,6 +161,9 @@ export default function TrainingTaskDetailPage() {
   const st = task ? (STATUS_MAP[task.status] || { color: 'default', label: task.status }) : null
   const completionRate = task && task.total_assigned > 0
     ? Math.round(task.completed_count / task.total_assigned * 100) : 0
+
+  // Already-assigned user IDs for filtering in selector
+  const assignedIds = new Set(task?.assignments.map(a => a.user_id) ?? [])
 
   return (
     <div style={{ padding: 24 }}>
@@ -190,13 +199,20 @@ export default function TrainingTaskDetailPage() {
 
       <Card style={{ marginBottom: 16 }}>
         <Descriptions column={2} size="small">
-          <Descriptions.Item label="描述">{task?.description || '—'}</Descriptions.Item>
+          <Descriptions.Item label="描述" span={2}>{task?.description || '—'}</Descriptions.Item>
+          <Descriptions.Item label="关联课程">
+            {task?.course_title
+              ? <Space><BookOutlined /><span>{task.course_title}</span></Space>
+              : <span style={{ color: '#ccc' }}>未关联</span>}
+          </Descriptions.Item>
+          <Descriptions.Item label="关联考试">
+            {task?.exam_title
+              ? <Tag color="blue">{task.exam_title}</Tag>
+              : <span style={{ color: '#ccc' }}>未关联</span>}
+          </Descriptions.Item>
           <Descriptions.Item label="允许补考">
             <Badge status={task?.allow_makeup_exam ? 'success' : 'default'}
               text={task?.allow_makeup_exam ? '是' : '否'} />
-          </Descriptions.Item>
-          <Descriptions.Item label="关联考试">
-            {task?.exam_id ? <Tag color="blue">已关联</Tag> : '—'}
           </Descriptions.Item>
           <Descriptions.Item label="创建时间">
             {task?.created_at ? new Date(task.created_at).toLocaleString('zh-CN') : '—'}
@@ -231,9 +247,10 @@ export default function TrainingTaskDetailPage() {
         confirmLoading={assigning}
         width={480}
       >
+        <p style={{ color: '#666', fontSize: 13, marginBottom: 8 }}>已分配的学员不会重复添加</p>
         <Select
           mode="multiple"
-          style={{ width: '100%', marginTop: 8 }}
+          style={{ width: '100%' }}
           placeholder="搜索并选择学员"
           showSearch
           filterOption={(input, option) =>
@@ -244,6 +261,7 @@ export default function TrainingTaskDetailPage() {
           options={allUsers.map(u => ({
             value: u.id,
             label: `${u.real_name || u.username}（${u.username}）`,
+            disabled: assignedIds.has(u.id),
           }))}
         />
       </Modal>

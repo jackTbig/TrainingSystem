@@ -64,7 +64,7 @@ const allMenuItems = [
     children: [
       { key: '/courses', icon: <BookOutlined />, label: '课程管理' },
       { key: '/questions', icon: <QuestionCircleOutlined />, label: '题库管理' },
-      { key: '/reviews', icon: <AuditOutlined />, label: '审核管理' },
+      { key: '/reviews', icon: <AuditOutlined />, label: '内容审核' },
       { key: '/publish-records', icon: <SendOutlined />, label: '发布记录' },
     ],
   },

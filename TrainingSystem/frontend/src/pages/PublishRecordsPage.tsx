@@ -8,12 +8,15 @@ const { Title, Text } = Typography
 
 interface TaskRow {
   id: string; title: string; status: string
+  course_title: string | null; exam_title: string | null
+  description?: string
   due_at: string | null; created_at: string
 }
 
 interface TaskDetail {
   id: string; title: string; description?: string; status: string
   course_version_id: string | null; exam_id: string | null
+  course_title: string | null; exam_title: string | null
   due_at: string | null; allow_makeup_exam: boolean; created_at: string
   total_assigned: number; completed_count: number
   assignments: {
@@ -40,7 +43,7 @@ export default function PublishRecordsPage() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
-  const [statusFilter, setStatusFilter] = useState<string | undefined>('published')
+  const [statusFilter, setStatusFilter] = useState<string>('published')
   const [detail, setDetail] = useState<TaskDetail | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
@@ -49,7 +52,7 @@ export default function PublishRecordsPage() {
     setLoading(true)
     try {
       const params: Record<string, unknown> = { page: p, page_size: 20 }
-      if (s) params.status = s
+      if (s && s !== 'all') params.status = s
       const res = await client.get('/training-tasks', { params })
       setRows(res.data.data.items)
       setTotal(res.data.data.total)
@@ -90,21 +93,35 @@ export default function PublishRecordsPage() {
   ]
 
   const columns: ColumnsType<TaskRow> = [
-    { title: '培训任务', dataIndex: 'title', ellipsis: true },
+    {
+      title: '培训任务', ellipsis: true,
+      render: (_, row) => (
+        <div>
+          <div style={{ fontWeight: 500 }}>{row.title}</div>
+          <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+            {row.course_title && <span>📖 {row.course_title}</span>}
+            {row.course_title && row.exam_title && <span style={{ margin: '0 6px' }}>·</span>}
+            {row.exam_title && <span>📝 {row.exam_title}</span>}
+            {!row.course_title && !row.exam_title && row.description && <span>{row.description}</span>}
+            {!row.course_title && !row.exam_title && !row.description && <span style={{ color: '#ccc' }}>无关联课程/考试</span>}
+          </div>
+        </div>
+      ),
+    },
     {
       title: '状态', dataIndex: 'status', width: 100,
       render: (s) => <Tag color={STATUS_COLOR[s]}>{STATUS_LABEL[s] ?? s}</Tag>,
     },
     {
-      title: '截止时间', dataIndex: 'due_at', width: 160,
-      render: (v) => v ? new Date(v).toLocaleString('zh-CN') : <span style={{ color: '#bbb' }}>无限制</span>,
+      title: '截止时间', dataIndex: 'due_at', width: 140,
+      render: (v) => v ? new Date(v).toLocaleDateString('zh-CN') : <span style={{ color: '#bbb' }}>无限制</span>,
     },
     {
-      title: '发布时间', dataIndex: 'created_at', width: 160,
+      title: '发布时间', dataIndex: 'created_at', width: 140,
       render: (v) => new Date(v).toLocaleString('zh-CN'),
     },
     {
-      title: '操作', width: 90,
+      title: '操作', width: 80,
       render: (_, row) => (
         <Button size="small" icon={<EyeOutlined />} onClick={() => loadDetail(row.id)}>明细</Button>
       ),
@@ -118,10 +135,10 @@ export default function PublishRecordsPage() {
         <Space>
           <Select
             style={{ width: 110 }}
-            value={statusFilter}
-            onChange={(v) => { setStatusFilter(v); setPage(1) }}
+            value={statusFilter || 'all'}
+            onChange={(v) => { setStatusFilter(v === 'all' ? '' : v); setPage(1) }}
             options={[
-              { value: undefined, label: '全部状态' },
+              { value: 'all', label: '全部状态' },
               ...Object.entries(STATUS_LABEL).map(([k, v]) => ({ value: k, label: v })),
             ]}
           />
@@ -145,6 +162,19 @@ export default function PublishRecordsPage() {
           <>
             <Descriptions column={2} size="small" bordered style={{ marginBottom: 16 }}>
               <Descriptions.Item label="任务名称" span={2}>{detail.title}</Descriptions.Item>
+              {detail.course_title && (
+                <Descriptions.Item label="关联课程" span={2}>
+                  <Tag color="blue">{detail.course_title}</Tag>
+                </Descriptions.Item>
+              )}
+              {detail.exam_title && (
+                <Descriptions.Item label="关联考试" span={2}>
+                  <Tag color="purple">{detail.exam_title}</Tag>
+                </Descriptions.Item>
+              )}
+              {detail.description && (
+                <Descriptions.Item label="任务说明" span={2}>{detail.description}</Descriptions.Item>
+              )}
               <Descriptions.Item label="状态">
                 <Tag color={STATUS_COLOR[detail.status]}>{STATUS_LABEL[detail.status] ?? detail.status}</Tag>
               </Descriptions.Item>
@@ -161,9 +191,6 @@ export default function PublishRecordsPage() {
               <Descriptions.Item label="已完成">
                 {detail.completed_count} / {detail.total_assigned}
               </Descriptions.Item>
-              {detail.description && (
-                <Descriptions.Item label="说明" span={2}>{detail.description}</Descriptions.Item>
-              )}
             </Descriptions>
 
             {detail.total_assigned > 0 && (
