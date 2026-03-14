@@ -147,6 +147,40 @@ async def list_document_chunks(
     )
 
 
+@router.get("/chunks/{chunk_id}", response_model=dict, summary="单个文档块详情（含所属文档信息）")
+async def get_chunk(
+    chunk_id: uuid.UUID,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    chunk = (await db.execute(
+        select(DocumentChunk).where(DocumentChunk.id == chunk_id)
+    )).scalar_one_or_none()
+    if not chunk:
+        raise NotFoundException(code="CHUNK_NOT_FOUND", message="文档块不存在")
+    # 找所属文档
+    doc_version = (await db.execute(
+        select(DocumentVersion).where(DocumentVersion.id == chunk.document_version_id)
+    )).scalar_one_or_none()
+    doc = None
+    if doc_version:
+        doc = (await db.execute(
+            select(Document).where(Document.id == doc_version.document_id)
+        )).scalar_one_or_none()
+    return success_response(data={
+        "id": str(chunk.id),
+        "chunk_index": chunk.chunk_index,
+        "chapter_title": chunk.chapter_title,
+        "content": chunk.content,
+        "token_count": chunk.token_count,
+        "document": {
+            "id": str(doc.id),
+            "title": doc.title,
+            "file_name": doc_version.file_name,
+        } if doc and doc_version else None,
+    })
+
+
 @router.post("/{doc_id}/reparse", response_model=dict, summary="重新解析")
 async def reparse_document(
     doc_id: uuid.UUID,

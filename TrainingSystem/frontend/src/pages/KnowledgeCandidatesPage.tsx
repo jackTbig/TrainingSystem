@@ -37,6 +37,11 @@ export default function KnowledgeCandidatesPage() {
   const [detail, setDetail] = useState<Candidate | null>(null)
   const [linkedKp, setLinkedKp] = useState<{ id: string; name: string } | null>(null)
   const [kpLoading, setKpLoading] = useState(false)
+  const [sourceChunk, setSourceChunk] = useState<{
+    chunk_index: number; chapter_title: string | null; content: string
+    document: { id: string; title: string; file_name: string } | null
+  } | null>(null)
+  const [sourceLoading, setSourceLoading] = useState(false)
 
   const navigate = useNavigate()
 
@@ -123,20 +128,36 @@ export default function KnowledgeCandidatesPage() {
   const openDetail = async (row: Candidate) => {
     setDetail(row)
     setLinkedKp(null)
+    setSourceChunk(null)
     setDrawerOpen(true)
-    // 已接受的候选，尝试按名称搜索对应知识点
+
+    // 并发：查出处 chunk + 查关联知识点
+    const tasks: Promise<void>[] = []
+
+    if (row.document_chunk_id) {
+      setSourceLoading(true)
+      tasks.push(
+        client.get(`/documents/chunks/${row.document_chunk_id}`)
+          .then((res) => setSourceChunk(res.data.data))
+          .catch(() => setSourceChunk(null))
+          .finally(() => setSourceLoading(false))
+      )
+    }
+
     if (row.status === 'accepted') {
       setKpLoading(true)
-      try {
-        const res = await knowledgePointsApi.search(row.candidate_name, 1, 5)
-        const match = res.data.data.items.find(
-          (kp: any) => kp.name === row.candidate_name
-        )
-        if (match) setLinkedKp({ id: match.id, name: match.name })
-      } catch { /* ignore */ } finally {
-        setKpLoading(false)
-      }
+      tasks.push(
+        knowledgePointsApi.search(row.candidate_name, 1, 5)
+          .then((res) => {
+            const match = res.data.data.items.find((kp: any) => kp.name === row.candidate_name)
+            if (match) setLinkedKp({ id: match.id, name: match.name })
+          })
+          .catch(() => {})
+          .finally(() => setKpLoading(false))
+      )
     }
+
+    await Promise.all(tasks)
   }
 
   // ── 表格列 ────────────────────────────────────────────────────────────────
@@ -336,6 +357,35 @@ export default function KnowledgeCandidatesPage() {
                 <Paragraph style={{ margin: 0, padding: '10px 12px', background: '#fafafa', borderRadius: 6, border: '1px solid #f0f0f0' }}>
                   {detail.candidate_description}
                 </Paragraph>
+              </div>
+            )}
+
+            {/* 知识点出处 */}
+            {detail.document_chunk_id && (
+              <div>
+                <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                  知识点出处
+                </Text>
+                {sourceLoading ? (
+                  <div style={{ color: '#999', fontSize: 13 }}>加载中...</div>
+                ) : sourceChunk ? (
+                  <div style={{ border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden' }}>
+                    <div style={{ padding: '8px 12px', background: '#f5f5f5', borderBottom: '1px solid #e8e8e8', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      {sourceChunk.document && (
+                        <Tag color="blue" style={{ margin: 0 }}>📄 {sourceChunk.document.title}</Tag>
+                      )}
+                      <Tag style={{ margin: 0 }}>第 {sourceChunk.chunk_index + 1} 段</Tag>
+                      {sourceChunk.chapter_title && (
+                        <Tag color="geekblue" style={{ margin: 0 }}>{sourceChunk.chapter_title}</Tag>
+                      )}
+                    </div>
+                    <div style={{ padding: '10px 12px', maxHeight: 200, overflowY: 'auto', fontSize: 13, lineHeight: 1.7, color: '#333', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                      {sourceChunk.content}
+                    </div>
+                  </div>
+                ) : (
+                  <Text type="secondary" style={{ fontSize: 13 }}>原始文档块已删除或无法访问</Text>
+                )}
               </div>
             )}
 
