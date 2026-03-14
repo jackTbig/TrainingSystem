@@ -164,14 +164,8 @@ async function hasSelector(page, sel) {
   await test(page, '07-knowledge-points', '/knowledge-points', [
     ['页面标题"知识点管理"', p => hasText(p, '知识点管理')],
     ['显示知识点树或空状态', p => hasSelector(p, '.ant-tree, .ant-empty, h4')],
-    ['新建顶级分类按钮', p => hasSelector(p, 'button.ant-btn-primary')],
-    ['点击新建分类弹出Modal', async p => {
-      await tryClick(p, 'button.ant-btn-primary')
-      await page.waitForTimeout(500)
-      await hasSelector(p, '.ant-modal-content')
-      await page.keyboard.press('Escape')
-      await page.waitForTimeout(300)
-    }],
+    ['显示刷新按钮', p => hasSelector(p, 'button')],
+    ['左侧目录面板', p => hasText(p, '知识点目录')],
   ])
 
   // ── 内容生产 ──────────────────────────────────────────

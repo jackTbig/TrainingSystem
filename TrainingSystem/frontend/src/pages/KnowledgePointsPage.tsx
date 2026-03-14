@@ -40,7 +40,7 @@ export default function KnowledgePointsPage() {
   const [sourceChunk, setSourceChunk] = useState<SourceChunk>(undefined as any)
   const [sourceLoading, setSourceLoading] = useState(false)
 
-  // create category modal
+  // create sub-category modal
   const [createOpen, setCreateOpen] = useState(false)
   const [createParentId, setCreateParentId] = useState<string | undefined>()
   const [creating, setCreating] = useState(false)
@@ -216,12 +216,7 @@ export default function KnowledgePointsPage() {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>知识点管理</Title>
-        <Space>
-          <Button icon={<ReloadOutlined />} onClick={fetchTree} loading={loading}>刷新</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreateCategory()}>
-            新建顶级分类
-          </Button>
-        </Space>
+        <Button icon={<ReloadOutlined />} onClick={fetchTree} loading={loading}>刷新</Button>
       </div>
 
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
@@ -399,9 +394,9 @@ export default function KnowledgePointsPage() {
         </div>
       </div>
 
-      {/* 新建分类 */}
+      {/* 新建子分类 */}
       <Modal
-        title={createParentId ? '添加子分类' : '新建顶级分类'}
+        title={createParentId ? '添加子分类' : '新建分类'}
         open={createOpen}
         onCancel={() => setCreateOpen(false)}
         footer={null}

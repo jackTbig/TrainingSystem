@@ -294,7 +294,7 @@ export default function KnowledgeCandidatesPage() {
         {group.items.length === 0 ? (
           <Text type="secondary" style={{ fontSize: 13 }}>暂无候选知识点</Text>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 420, overflowY: 'auto', paddingRight: 4 }}>
             {pendingItems.length > 0 && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0', marginBottom: 4 }}>
                 <input
