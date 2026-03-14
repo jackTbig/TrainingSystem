@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   Badge, Button, Collapse, Form, Input, Modal, Popconfirm,
-  Select, Space, Tag, TreeSelect, Typography, message,
+  Space, Tag, TreeSelect, Typography, message,
 } from 'antd'
 import {
   CheckOutlined, CloseOutlined, FileTextOutlined, PlusOutlined,
@@ -45,7 +45,7 @@ export default function KnowledgeCandidatesPage() {
   const navigate = useNavigate()
   const [allItems, setAllItems] = useState<Candidate[]>([])
   const [loading, setLoading] = useState(false)
-  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
+  const [statusFilter] = useState<string | undefined>('pending')
 
   // category tree for accept modal
   const [categoryTree, setCategoryTree] = useState<KnowledgePointTree[]>([])
@@ -390,27 +390,12 @@ export default function KnowledgeCandidatesPage() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>候选知识点审核</Title>
-        <Space>
-          <Select
-            value={statusFilter}
-            onChange={v => setStatusFilter(v)}
-            placeholder="全部状态"
-            allowClear
-            style={{ width: 130 }}
-            options={[
-              { label: '待审核', value: 'pending' },
-              { label: '已接受', value: 'accepted' },
-              { label: '已忽略', value: 'ignored' },
-              { label: '已合并', value: 'merged' },
-            ]}
-          />
-          <Button
-            type="primary" icon={<PlusOutlined />}
-            onClick={() => setManualOpen(true)}
-          >
-            手动添加候选知识点
-          </Button>
-        </Space>
+        <Button
+          type="primary" icon={<PlusOutlined />}
+          onClick={() => setManualOpen(true)}
+        >
+          手动添加候选知识点
+        </Button>
       </div>
 
       {loading && <div style={{ color: '#999', textAlign: 'center', padding: 24 }}>加载中...</div>}
