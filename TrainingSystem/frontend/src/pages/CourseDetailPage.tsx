@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Button, Card, Collapse, Form, Input, InputNumber, Modal,
-  Space, Tag, Typography, message,
+  Space, Tag, TreeSelect, Typography, message,
 } from 'antd'
 import { ArrowLeftOutlined, PlusOutlined, RollbackOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import MDEditor from '@uiw/react-md-editor'
@@ -33,6 +33,10 @@ const VERSION_STATUS_LABEL: Record<string, string> = {
   published: '已发布', rejected: '被驳回', archived: '已归档',
 }
 
+function toTreeSelectData(nodes: any[]): any[] {
+  return nodes.map(n => ({ title: n.name, value: n.id, children: n.children?.length ? toTreeSelectData(n.children) : undefined }))
+}
+
 export default function CourseDetailPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const navigate = useNavigate()
@@ -47,6 +51,8 @@ export default function CourseDetailPage() {
   const [verForm] = Form.useForm()
   const [chapForm] = Form.useForm()
   const [aiGenForm] = Form.useForm()
+  const [kpTree, setKpTree] = useState<any[]>([])
+  const [selectedKpIds, setSelectedKpIds] = useState<string[]>([])
 
   const load = async () => {
     if (!courseId) return
@@ -64,7 +70,10 @@ export default function CourseDetailPage() {
     }
   }
 
-  useEffect(() => { load() }, [courseId])
+  useEffect(() => {
+    load()
+    client.get('/knowledge-points/tree').then(r => setKpTree(toTreeSelectData(r.data.data))).catch(() => {})
+  }, [courseId])
 
   const handleAddVersion = async (values: { title: string; summary?: string }) => {
     if (!courseId) return
@@ -100,12 +109,13 @@ export default function CourseDetailPage() {
     setAiGenerating(true)
     try {
       await client.post(`/courses/${courseId}/ai-generate`, {
-        knowledge_point_ids: [],
+        knowledge_point_ids: selectedKpIds,
         chapter_count: values.chapter_count,
       })
       message.success('AI 生成任务已提交，Worker 处理完成后会自动创建新版本，请稍后刷新')
       setAiGenOpen(false)
       aiGenForm.resetFields()
+      setSelectedKpIds([])
     } catch {
       message.error('提交失败，请检查 AI Worker 是否运行')
     } finally {
@@ -231,11 +241,25 @@ export default function CourseDetailPage() {
       <Modal
         title="AI 生成课程内容"
         open={aiGenOpen}
-        onCancel={() => { setAiGenOpen(false); aiGenForm.resetFields() }}
+        onCancel={() => { setAiGenOpen(false); aiGenForm.resetFields(); setSelectedKpIds([]) }}
         footer={null}
         width={440}
       >
         <Form form={aiGenForm} layout="vertical" onFinish={handleAiGenerate} style={{ marginTop: 16 }} initialValues={{ chapter_count: 5 }}>
+          <Form.Item label="指定知识点" extra="不选则使用全部已激活知识点">
+            <TreeSelect
+              treeData={kpTree}
+              value={selectedKpIds}
+              onChange={(v) => setSelectedKpIds(v)}
+              multiple
+              treeCheckable
+              showCheckedStrategy="SHOW_PARENT"
+              placeholder="可选择特定知识点范围"
+              style={{ width: '100%' }}
+              maxTagCount={3}
+              allowClear
+            />
+          </Form.Item>
           <Form.Item label="章节数量" name="chapter_count" rules={[{ required: true }]}>
             <InputNumber min={1} max={20} style={{ width: '100%' }} />
           </Form.Item>

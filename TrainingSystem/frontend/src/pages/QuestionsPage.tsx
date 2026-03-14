@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  Button, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Table, Tag, Typography, message,
+  Button, Col, Form, Input, InputNumber, Modal, Row, Select, Space, Table, Tag, TreeSelect, Typography, message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { PlusOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons'
@@ -19,6 +19,10 @@ const TYPE_LABEL: Record<string, string> = {
   matching: '连线题', ai_graded: 'AI判卷',
 }
 
+function toTreeSelectData(nodes: any[]): any[] {
+  return nodes.map(n => ({ title: n.name, value: n.id, children: n.children?.length ? toTreeSelectData(n.children) : undefined }))
+}
+
 export default function QuestionsPage() {
   const [rows, setRows] = useState<QuestionRow[]>([])
   const [total, setTotal] = useState(0)
@@ -33,6 +37,8 @@ export default function QuestionsPage() {
   const [form] = Form.useForm()
   const [aiForm] = Form.useForm()
   const qType = Form.useWatch('question_type', form)
+  const [kpTree, setKpTree] = useState<any[]>([])
+  const [selectedKpIds, setSelectedKpIds] = useState<string[]>([])
 
   const fetchData = async (p = page, s = statusFilter, t = typeFilter) => {
     setLoading(true)
@@ -49,6 +55,9 @@ export default function QuestionsPage() {
   }
 
   useEffect(() => { fetchData() }, [page, statusFilter, typeFilter])
+  useEffect(() => {
+    client.get('/knowledge-points/tree').then(r => setKpTree(toTreeSelectData(r.data.data))).catch(() => {})
+  }, [])
 
   const handleCreate = async (values: Record<string, unknown>) => {
     setSaving(true)
@@ -98,7 +107,7 @@ export default function QuestionsPage() {
     setAiGenerating(true)
     try {
       await client.post('/questions/ai-generate', {
-        knowledge_point_ids: [],
+        knowledge_point_ids: selectedKpIds,
         chapter_ids: [],
         question_types: values.question_types,
         count: values.count,
@@ -106,6 +115,7 @@ export default function QuestionsPage() {
       message.success('AI 题目生成任务已提交，请稍后刷新查看新题目')
       setAiOpen(false)
       aiForm.resetFields()
+      setSelectedKpIds([])
     } catch {
       message.error('提交失败，请检查 AI Worker 是否运行')
     } finally {
@@ -285,7 +295,7 @@ export default function QuestionsPage() {
       <Modal
         title="AI 批量生成题目"
         open={aiOpen}
-        onCancel={() => { setAiOpen(false); aiForm.resetFields() }}
+        onCancel={() => { setAiOpen(false); aiForm.resetFields(); setSelectedKpIds([]) }}
         footer={null}
         width={480}
       >
@@ -296,6 +306,20 @@ export default function QuestionsPage() {
           style={{ marginTop: 16 }}
           initialValues={{ count: 10, question_types: ['single_choice', 'true_false', 'short_answer'] }}
         >
+          <Form.Item label="指定知识点" extra="不选则使用全部已激活知识点">
+            <TreeSelect
+              treeData={kpTree}
+              value={selectedKpIds}
+              onChange={(v) => setSelectedKpIds(v)}
+              multiple
+              treeCheckable
+              showCheckedStrategy="SHOW_PARENT"
+              placeholder="可选择特定知识点范围"
+              style={{ width: '100%' }}
+              maxTagCount={3}
+              allowClear
+            />
+          </Form.Item>
           <Form.Item label="生成数量" name="count" rules={[{ required: true }]}>
             <InputNumber min={1} max={50} style={{ width: '100%' }} />
           </Form.Item>
