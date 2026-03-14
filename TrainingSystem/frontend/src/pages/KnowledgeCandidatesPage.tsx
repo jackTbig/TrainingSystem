@@ -372,7 +372,12 @@ export default function KnowledgeCandidatesPage() {
                   <div style={{ border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden' }}>
                     <div style={{ padding: '8px 12px', background: '#f5f5f5', borderBottom: '1px solid #e8e8e8', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                       {sourceChunk.document && (
-                        <Tag color="blue" style={{ margin: 0 }}>📄 {sourceChunk.document.title}</Tag>
+                        <Tag
+                          color="blue" style={{ margin: 0, cursor: 'pointer' }}
+                          onClick={() => { setDrawerOpen(false); navigate(`/documents/${sourceChunk.document!.id}`) }}
+                        >
+                          📄 {sourceChunk.document.title} ↗
+                        </Tag>
                       )}
                       <Tag style={{ margin: 0 }}>第 {sourceChunk.chunk_index + 1} 段</Tag>
                       {sourceChunk.chapter_title && (
