@@ -20,10 +20,15 @@ client.interceptors.request.use((config) => {
 // 响应拦截：统一错误处理
 client.interceptors.response.use(
   (response) => response,
-  (error) => {
+  async (error) => {
     const status = error.response?.status
-    const code = error.response?.data?.code
-    const msg = error.response?.data?.message || '请求失败'
+    // When responseType is 'blob', data is a Blob — parse it to get JSON error
+    let data = error.response?.data
+    if (data instanceof Blob && data.type?.includes('application/json')) {
+      try { data = JSON.parse(await data.text()) } catch { data = {} }
+    }
+    const code = data?.code
+    const msg = data?.message || '请求失败'
 
     if (status === 401 || code === 'AUTH_TOKEN_EXPIRED') {
       storage.clear()
@@ -31,7 +36,8 @@ client.interceptors.response.use(
       return Promise.reject(error)
     }
 
-    if (status !== 422) {
+    // Skip auto-toast for blob requests — the caller handles the message
+    if (status !== 422 && error.config?.responseType !== 'blob') {
       message.error(msg)
     }
 
