@@ -26,6 +26,7 @@ export default function KnowledgeCandidatesPage() {
   const [items, setItems] = useState<Candidate[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
   const [loading, setLoading] = useState(false)
   const [statusFilter, setStatusFilter] = useState<string | undefined>('pending')
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -39,10 +40,10 @@ export default function KnowledgeCandidatesPage() {
 
   const navigate = useNavigate()
 
-  const fetchData = async (p = page, s = statusFilter) => {
+  const fetchData = async (p = page, s = statusFilter, ps = pageSize) => {
     setLoading(true)
     try {
-      const res = await candidatesApi.list({ page: p, page_size: 20, status: s })
+      const res = await candidatesApi.list({ page: p, page_size: ps, status: s })
       setItems(res.data.data.items)
       setTotal(res.data.data.total)
       setSelectedIds([])
@@ -278,9 +279,15 @@ export default function KnowledgeCandidatesPage() {
         }}
         pagination={{
           current: page,
-          pageSize: 20,
+          pageSize,
           total,
-          onChange: (p) => { setPage(p); fetchData(p) },
+          showSizeChanger: true,
+          pageSizeOptions: [10, 20, 50, 100],
+          onChange: (p, ps) => {
+            setPage(p)
+            setPageSize(ps)
+            fetchData(p, statusFilter, ps)
+          },
           showTotal: (t) => `共 ${t} 条`,
         }}
       />
