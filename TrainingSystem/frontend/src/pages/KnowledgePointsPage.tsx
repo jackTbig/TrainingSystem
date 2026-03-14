@@ -3,7 +3,7 @@ import {
   Button, Form, Input, Modal, Popconfirm, Space, Tag, Tree,
   Typography, message, Descriptions, Empty, Divider, Tooltip,
 } from 'antd'
-import type { DataNode } from 'antd/es/tree'
+import type { DataNode, TreeProps } from 'antd/es/tree'
 import {
   FolderOutlined, FolderOpenOutlined, FileOutlined,
   PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined,
@@ -63,6 +63,61 @@ export default function KnowledgePointsPage() {
   }
 
   useEffect(() => { fetchTree() }, [])
+
+  // ── Drag-and-drop ──────────────────────────────────────────────────
+
+  const isDescendant = (ancestor: KnowledgePointTree, targetId: string): boolean => {
+    for (const child of ancestor.children) {
+      if (child.id === targetId) return true
+      if (isDescendant(child, targetId)) return true
+    }
+    return false
+  }
+
+  const allowDrop: TreeProps['allowDrop'] = ({ dropNode, dropPosition }) => {
+    if (dropPosition === 0) {
+      // dropping INTO a node — only categories can have children
+      const target = findNode(rawTree, dropNode.key as string)
+      return target?.node_type === 'category'
+    }
+    return true // dropping in gap is always allowed
+  }
+
+  const onDrop: TreeProps['onDrop'] = async (info) => {
+    const dragId = info.dragNode.key as string
+    const targetId = info.node.key as string
+    const draggedNode = findNode(rawTree, dragId)
+    const targetNode = findNode(rawTree, targetId)
+    if (!draggedNode || !targetNode) return
+
+    let newParentId: string | null
+    if (!info.dropToGap) {
+      // drop onto node → become child of that category
+      newParentId = targetNode.id
+    } else {
+      // drop in gap → same level as target
+      newParentId = targetNode.parent_id ?? null
+    }
+
+    // prevent dropping a category into its own descendant
+    if (draggedNode.node_type === 'category' && newParentId) {
+      if (isDescendant(draggedNode, newParentId)) {
+        message.warning('不能将分类移入自身的子节点中')
+        return
+      }
+    }
+
+    const currentParentId = draggedNode.parent_id ?? null
+    if (currentParentId === newParentId) return
+
+    try {
+      await knowledgePointsApi.update(dragId, { parent_id: newParentId })
+      message.success('已移动')
+      await fetchTree()
+    } catch {
+      message.error('移动失败')
+    }
+  }
 
   // ── CRUD ──────────────────────────────────────────────────────────
 
@@ -242,6 +297,9 @@ export default function KnowledgePointsPage() {
               selectedKeys={selected ? [selected.id] : []}
               onSelect={onSelect}
               blockNode
+              draggable={{ icon: false }}
+              allowDrop={allowDrop}
+              onDrop={onDrop}
               style={{ fontSize: 13 }}
             />
           )}

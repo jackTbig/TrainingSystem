@@ -236,7 +236,7 @@ class KnowledgePointService:
         kp = await self.repo.get_by_id(kp_id)
         if not kp:
             raise NotFoundException(code="KP_NOT_FOUND", message="知识点不存在")
-        updates = {k: v for k, v in data.model_dump(exclude_none=True).items()}
+        updates = {k: v for k, v in data.model_dump(exclude_unset=True).items()}
         if updates:
             await self.repo.update(kp, **updates)
         await self.db.commit()

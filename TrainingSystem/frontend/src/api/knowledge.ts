@@ -57,7 +57,7 @@ export const knowledgePointsApi = {
     ),
   createCategory: (data: { name: string; description?: string; parent_id?: string }) =>
     client.post<{ code: string; data: KnowledgePoint }>('/knowledge-points/categories', data),
-  update: (id: string, data: Partial<{ name: string; description: string; parent_id: string; status: string; weight: number }>) =>
+  update: (id: string, data: Partial<{ name: string; description: string | null; parent_id: string | null; status: string; weight: number }>) =>
     client.put<{ code: string; data: KnowledgePoint }>(`/knowledge-points/${id}`, data),
   archive: (id: string) =>
     client.post<{ code: string; data: KnowledgePoint }>(`/knowledge-points/${id}/archive`),
