@@ -1,17 +1,27 @@
 import { useEffect, useState } from 'react'
 import {
   Button, Form, Input, InputNumber, Modal, Popconfirm, Space, Tag, Tree,
-  Typography, message, Descriptions, Empty, Divider,
+  Typography, message, Descriptions, Empty, Divider, Tooltip,
 } from 'antd'
 import type { DataNode } from 'antd/es/tree'
 import {
   FolderOutlined, FolderOpenOutlined, FileOutlined,
   PlusOutlined, EditOutlined, DeleteOutlined, ReloadOutlined,
+  DownloadOutlined, FilePdfOutlined,
 } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import type { KnowledgePointTree } from '@/api/knowledge'
 import { knowledgePointsApi } from '@/api/knowledge'
+import client from '@/api/client'
 
 const { Title, Text, Paragraph } = Typography
+
+type SourceChunk = {
+  chunk_index: number
+  chapter_title: string | null
+  content: string
+  document: { id: string; title: string; file_name: string } | null
+} | null
 
 function findNode(nodes: KnowledgePointTree[], id: string): KnowledgePointTree | null {
   for (const n of nodes) {
@@ -23,9 +33,12 @@ function findNode(nodes: KnowledgePointTree[], id: string): KnowledgePointTree |
 }
 
 export default function KnowledgePointsPage() {
+  const navigate = useNavigate()
   const [rawTree, setRawTree] = useState<KnowledgePointTree[]>([])
   const [loading, setLoading] = useState(false)
   const [selected, setSelected] = useState<KnowledgePointTree | null>(null)
+  const [sourceChunk, setSourceChunk] = useState<SourceChunk>(undefined as any)
+  const [sourceLoading, setSourceLoading] = useState(false)
 
   // create modal
   const [createOpen, setCreateOpen] = useState(false)
@@ -161,9 +174,35 @@ export default function KnowledgePointsPage() {
   const treeData = toTreeData(rawTree)
 
   const onSelect = (keys: React.Key[]) => {
-    if (keys.length === 0) { setSelected(null); return }
+    if (keys.length === 0) { setSelected(null); setSourceChunk(null); return }
     const node = findNode(rawTree, keys[0] as string)
     setSelected(node)
+    setSourceChunk(null)
+    if (node) {
+      setSourceLoading(true)
+      client.get(`/knowledge-points/${node.id}/source`)
+        .then(r => setSourceChunk(r.data.data))
+        .catch(() => setSourceChunk(null))
+        .finally(() => setSourceLoading(false))
+    }
+  }
+
+  const openFile = async (docId: string, fileName: string, inline: boolean) => {
+    try {
+      const res = await client.get(`/documents/${docId}/download`, { params: { inline }, responseType: 'blob' })
+      const blob = new Blob([res.data], { type: res.headers['content-type'] })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      if (!inline) a.download = fileName
+      else a.target = '_blank'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      setTimeout(() => URL.revokeObjectURL(url), 5000)
+    } catch {
+      message.error('文件获取失败')
+    }
   }
 
   return (
@@ -233,6 +272,50 @@ export default function KnowledgePointsPage() {
                   </Descriptions.Item>
                 )}
               </Descriptions>
+
+              {/* 知识点出处 */}
+              <Divider orientation="left" style={{ fontSize: 13 }}>知识点出处</Divider>
+              {sourceLoading ? (
+                <div style={{ color: '#999', fontSize: 13, padding: '8px 0' }}>加载中...</div>
+              ) : sourceChunk ? (
+                <div style={{ border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ padding: '8px 12px', background: '#f5f5f5', borderBottom: '1px solid #e8e8e8', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    {sourceChunk.document && (
+                      <Tag color="blue" style={{ margin: 0, cursor: 'pointer' }}
+                        onClick={() => navigate(`/documents/${sourceChunk!.document!.id}`)}>
+                        📄 {sourceChunk.document.title} ↗
+                      </Tag>
+                    )}
+                    <Tag style={{ margin: 0 }}>第 {sourceChunk.chunk_index + 1} 段</Tag>
+                    {sourceChunk.chapter_title && <Tag color="geekblue" style={{ margin: 0 }}>{sourceChunk.chapter_title}</Tag>}
+                    {sourceChunk.document && (
+                      <Space size={4} style={{ marginLeft: 'auto' }}>
+                        {sourceChunk.document.file_name.toLowerCase().endsWith('.pdf') && (
+                          <Tooltip title="在浏览器中预览 PDF">
+                            <Button size="small" type="link" icon={<FilePdfOutlined />}
+                              style={{ padding: '0 4px', color: '#ff4d4f' }}
+                              onClick={() => openFile(sourceChunk!.document!.id, sourceChunk!.document!.file_name, true)}>
+                              预览
+                            </Button>
+                          </Tooltip>
+                        )}
+                        <Tooltip title="下载原始文件">
+                          <Button size="small" type="link" icon={<DownloadOutlined />}
+                            style={{ padding: '0 4px' }}
+                            onClick={() => openFile(sourceChunk!.document!.id, sourceChunk!.document!.file_name, false)}>
+                            下载
+                          </Button>
+                        </Tooltip>
+                      </Space>
+                    )}
+                  </div>
+                  <div style={{ padding: '10px 12px', maxHeight: 180, overflowY: 'auto', fontSize: 13, lineHeight: 1.7, color: '#333', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {sourceChunk.content}
+                  </div>
+                </div>
+              ) : (
+                <Text type="secondary" style={{ fontSize: 13 }}>此知识点无文档出处（手动创建）</Text>
+              )}
 
               {selected.children.length > 0 && (
                 <>

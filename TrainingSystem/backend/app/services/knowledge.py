@@ -45,6 +45,7 @@ class CandidateService:
             description=description,
             parent_id=req.parent_id,
             weight=req.weight,
+            source_candidate_id=c.id,
         )
         await self.repo.update(c, status="accepted")
         await self.db.commit()

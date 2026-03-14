@@ -40,6 +40,7 @@ class KnowledgePointOut(BaseModel):
     parent_id: uuid.UUID | None
     status: str
     weight: int
+    source_candidate_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
 

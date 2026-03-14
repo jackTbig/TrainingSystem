@@ -1,10 +1,14 @@
 import uuid
 
 from fastapi import APIRouter, Body, Depends, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user_id, get_db
+from app.core.exceptions import NotFoundException
 from app.core.response import paginated_response, success_response
+from app.models.document import Document, DocumentChunk, DocumentVersion
+from app.models.knowledge import KnowledgePoint, KnowledgePointCandidate
 from app.schemas.knowledge import (
     CandidateAcceptRequest,
     CandidateMergeRequest,
@@ -202,6 +206,51 @@ async def add_relation(
     svc = KnowledgePointService(db)
     rel = await svc.add_relation(kp_id, data)
     return success_response(data=rel)
+
+
+@router.get("/{kp_id}/source", response_model=dict, summary="知识点出处（来源文档块）")
+async def get_kp_source(
+    kp_id: uuid.UUID,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    kp = (await db.execute(select(KnowledgePoint).where(KnowledgePoint.id == kp_id))).scalar_one_or_none()
+    if not kp:
+        raise NotFoundException(code="KP_NOT_FOUND", message="知识点不存在")
+    if not kp.source_candidate_id:
+        return success_response(data=None)
+
+    candidate = (await db.execute(
+        select(KnowledgePointCandidate).where(KnowledgePointCandidate.id == kp.source_candidate_id)
+    )).scalar_one_or_none()
+    if not candidate or not candidate.document_chunk_id:
+        return success_response(data=None)
+
+    chunk = (await db.execute(
+        select(DocumentChunk).where(DocumentChunk.id == candidate.document_chunk_id)
+    )).scalar_one_or_none()
+    if not chunk:
+        return success_response(data=None)
+
+    doc_version = (await db.execute(
+        select(DocumentVersion).where(DocumentVersion.id == chunk.document_version_id)
+    )).scalar_one_or_none()
+    doc = None
+    if doc_version:
+        doc = (await db.execute(
+            select(Document).where(Document.id == doc_version.document_id)
+        )).scalar_one_or_none()
+
+    return success_response(data={
+        "chunk_index": chunk.chunk_index,
+        "chapter_title": chunk.chapter_title,
+        "content": chunk.content,
+        "document": {
+            "id": str(doc.id),
+            "title": doc.title,
+            "file_name": doc_version.file_name,
+        } if doc and doc_version else None,
+    })
 
 
 @router.delete("/{kp_id}/relations/{target_id}/{relation_type}", response_model=dict, summary="删除关联")

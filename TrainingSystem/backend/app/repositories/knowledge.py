@@ -97,8 +97,10 @@ class KnowledgePointRepository:
         description: str | None = None,
         parent_id: uuid.UUID | None = None,
         weight: int = 0,
+        source_candidate_id: uuid.UUID | None = None,
     ) -> KnowledgePoint:
-        kp = KnowledgePoint(name=name, description=description, parent_id=parent_id, weight=weight)
+        kp = KnowledgePoint(name=name, description=description, parent_id=parent_id, weight=weight,
+                            source_candidate_id=source_candidate_id)
         self.db.add(kp)
         await self.db.flush()
         await self.db.refresh(kp)

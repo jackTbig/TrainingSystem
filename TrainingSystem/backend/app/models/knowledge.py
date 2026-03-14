@@ -45,6 +45,13 @@ class KnowledgePoint(UUIDMixin, TimestampMixin, Base):
     # active / archived
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active", index=True)
     weight: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # 来源候选知识点（从候选接受时记录）
+    source_candidate_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("knowledge_point_candidates.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
 
     # 关系
     children: Mapped[list["KnowledgePoint"]] = relationship(
