@@ -310,10 +310,11 @@ export default function QuestionsPage() {
             <TreeSelect
               treeData={kpTree}
               value={selectedKpIds}
-              onChange={(v) => setSelectedKpIds(v)}
+              onChange={(v: any) => setSelectedKpIds(Array.isArray(v) ? v.map((i: any) => i?.value ?? i) : [])}
               multiple
               treeCheckable
-              showCheckedStrategy="SHOW_PARENT"
+              treeCheckStrictly
+              showCheckedStrategy="SHOW_ALL"
               placeholder="可选择特定知识点范围"
               style={{ width: '100%' }}
               maxTagCount={3}
