@@ -68,7 +68,7 @@ function buildMenu(isAdmin: boolean) {
     .filter((item) => isAdmin || !(item as any).admin)
     .map((item) => {
       if (!('children' in item)) return item
-      const children = item.children.filter((c) => isAdmin || !(c as any).admin)
+      const children = (item.children ?? []).filter((c) => isAdmin || !(c as any).admin)
       return { ...item, children }
     })
     .filter((item) => !('children' in item) || (item as any).children.length > 0)

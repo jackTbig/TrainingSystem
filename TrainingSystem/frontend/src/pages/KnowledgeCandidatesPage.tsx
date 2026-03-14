@@ -1,16 +1,16 @@
 import { useEffect, useState } from 'react'
 import {
-  Badge, Button, Descriptions, Drawer, Modal, Popconfirm,
-  Select, Space, Table, Tag, Tooltip, Typography, message,
+  Badge, Button, Collapse, Form, Input, Modal, Popconfirm,
+  Select, Space, Tag, TreeSelect, Typography, message,
 } from 'antd'
-import type { ColumnsType } from 'antd/es/table'
-import { CheckOutlined, CloseOutlined, DownloadOutlined, EyeOutlined, FilePdfOutlined, LinkOutlined } from '@ant-design/icons'
+import {
+  CheckOutlined, CloseOutlined, FileTextOutlined, PlusOutlined,
+} from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import type { Candidate } from '@/api/knowledge'
+import type { Candidate, KnowledgePointTree } from '@/api/knowledge'
 import { candidatesApi, knowledgePointsApi } from '@/api/knowledge'
-import client from '@/api/client'
 
-const { Title, Text, Paragraph } = Typography
+const { Title, Text } = Typography
 
 const STATUS_COLOR: Record<string, string> = {
   pending: 'processing',
@@ -22,461 +22,486 @@ const STATUS_LABEL: Record<string, string> = {
   pending: '待审核', accepted: '已接受', ignored: '已忽略', merged: '已合并',
 }
 
+function toCategoryTreeSelect(nodes: KnowledgePointTree[]): any[] {
+  return nodes
+    .filter(n => n.node_type === 'category')
+    .map(n => {
+      const catChildren = n.children.filter(c => c.node_type === 'category')
+      return {
+        title: n.name,
+        value: n.id,
+        children: catChildren.length > 0 ? toCategoryTreeSelect(n.children) : undefined,
+      }
+    })
+}
+
+interface AcceptModalState {
+  open: boolean
+  candidate: Candidate | null
+  batchIds: string[] | null  // null = single accept
+}
+
 export default function KnowledgeCandidatesPage() {
-  const [items, setItems] = useState<Candidate[]>([])
-  const [total, setTotal] = useState(0)
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
-  const [loading, setLoading] = useState(false)
-  const [statusFilter, setStatusFilter] = useState<string | undefined>('pending')
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
-  const [batchLoading, setBatchLoading] = useState(false)
-
-  // 详情抽屉
-  const [drawerOpen, setDrawerOpen] = useState(false)
-  const [detail, setDetail] = useState<Candidate | null>(null)
-  const [linkedKp, setLinkedKp] = useState<{ id: string; name: string } | null>(null)
-  const [kpLoading, setKpLoading] = useState(false)
-  const [sourceChunk, setSourceChunk] = useState<{
-    chunk_index: number; chapter_title: string | null; content: string
-    document: { id: string; title: string; file_name: string } | null
-  } | null>(null)
-  const [sourceLoading, setSourceLoading] = useState(false)
-
   const navigate = useNavigate()
+  const [allItems, setAllItems] = useState<Candidate[]>([])
+  const [loading, setLoading] = useState(false)
+  const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
 
-  const fetchData = async (p = page, s = statusFilter, ps = pageSize) => {
+  // category tree for accept modal
+  const [categoryTree, setCategoryTree] = useState<KnowledgePointTree[]>([])
+
+  // accept modal
+  const [acceptModal, setAcceptModal] = useState<AcceptModalState>({ open: false, candidate: null, batchIds: null })
+  const [acceptForm] = Form.useForm()
+  const [accepting, setAccepting] = useState(false)
+
+  // manual create modal
+  const [manualOpen, setManualOpen] = useState(false)
+  const [manualForm] = Form.useForm()
+  const [manualCreating, setManualCreating] = useState(false)
+
+  // per-group selections
+  const [groupSelections, setGroupSelections] = useState<Record<string, string[]>>({})
+
+  const fetchData = async () => {
     setLoading(true)
     try {
-      const res = await candidatesApi.list({ page: p, page_size: ps, status: s })
-      setItems(res.data.data.items)
-      setTotal(res.data.data.total)
-      setSelectedIds([])
+      const res = await candidatesApi.list({ page: 1, page_size: 200 })
+      setAllItems(res.data.data.items)
+      setGroupSelections({})
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { fetchData(1, statusFilter) }, [statusFilter])
+  const fetchCategories = async () => {
+    try {
+      const res = await knowledgePointsApi.tree()
+      setCategoryTree(res.data.data)
+    } catch {
+      // ignore
+    }
+  }
 
-  // ── 单条操作 ──────────────────────────────────────────────────────────────
+  useEffect(() => {
+    fetchData()
+    fetchCategories()
+  }, [])
 
-  const handleAccept = (row: Candidate) => {
-    Modal.confirm({
-      title: '接受候选知识点',
-      content: (
-        <div>
-          <p>将创建知识点：<strong>{row.candidate_name}</strong></p>
-          <p style={{ color: '#888', fontSize: 12 }}>{row.candidate_description}</p>
-        </div>
-      ),
-      okText: '确认接受',
-      onOk: async () => {
-        await candidatesApi.accept(row.id, {})
+  // ── Filtering ────────────────────────────────────────────────────────────
+
+  const filteredItems = statusFilter
+    ? allItems.filter(i => i.status === statusFilter)
+    : allItems
+
+  // ── Grouping ─────────────────────────────────────────────────────────────
+
+  type Group = {
+    key: string
+    label: string
+    docId: string | null
+    items: Candidate[]
+    isManual: boolean
+  }
+
+  const groupMap = new Map<string, Group>()
+  for (const item of filteredItems) {
+    const key = item.document_id ?? '__manual__'
+    if (!groupMap.has(key)) {
+      groupMap.set(key, {
+        key,
+        label: item.document_title ?? (item.source_type === 'manual' ? '手动添加' : '未知文档'),
+        docId: item.document_id,
+        items: [],
+        isManual: !item.document_id,
+      })
+    }
+    groupMap.get(key)!.items.push(item)
+  }
+  // Ensure manual group exists even if empty after filter
+  if (!groupMap.has('__manual__')) {
+    groupMap.set('__manual__', { key: '__manual__', label: '手动添加', docId: null, items: [], isManual: true })
+  }
+
+  const groups = Array.from(groupMap.values()).sort((a, b) => {
+    if (a.isManual) return 1
+    if (b.isManual) return -1
+    return a.label.localeCompare(b.label)
+  })
+
+  // ── Accept ────────────────────────────────────────────────────────────────
+
+  const openAccept = (candidate: Candidate) => {
+    setAcceptModal({ open: true, candidate, batchIds: null })
+    acceptForm.setFieldsValue({
+      name: candidate.candidate_name,
+      description: candidate.candidate_description ?? '',
+      category_id: undefined,
+    })
+  }
+
+  const openBatchAccept = (ids: string[]) => {
+    setAcceptModal({ open: true, candidate: null, batchIds: ids })
+    acceptForm.setFieldsValue({ name: undefined, description: undefined, category_id: undefined })
+  }
+
+  const handleAcceptSubmit = async (values: { name?: string; description?: string; category_id: string }) => {
+    setAccepting(true)
+    try {
+      if (acceptModal.batchIds) {
+        const res = await candidatesApi.batchAccept(acceptModal.batchIds, values.category_id)
+        const { accepted, failed } = (res as any).data.data
+        message.success(`已接受 ${accepted} 条${failed ? `，${failed} 条失败` : ''}`)
+      } else if (acceptModal.candidate) {
+        await candidatesApi.accept(acceptModal.candidate.id, {
+          name: values.name,
+          description: values.description,
+          category_id: values.category_id,
+        })
         message.success('已接受并创建知识点')
-        if (detail?.id === row.id) setDrawerOpen(false)
-        fetchData()
-      },
-    })
-  }
-
-  const handleIgnore = (row: Candidate) => {
-    Modal.confirm({
-      title: '忽略此候选知识点？',
-      content: `"${row.candidate_name}" 将被标记为已忽略`,
-      okText: '确认忽略',
-      okButtonProps: { danger: true },
-      onOk: async () => {
-        await candidatesApi.ignore(row.id)
-        message.success('已忽略')
-        if (detail?.id === row.id) setDrawerOpen(false)
-        fetchData()
-      },
-    })
-  }
-
-  // ── 批量操作 ──────────────────────────────────────────────────────────────
-
-  const handleBatchAccept = async () => {
-    setBatchLoading(true)
-    try {
-      const res = await client.post('/knowledge-points/candidates/batch-accept', { ids: selectedIds })
-      const { accepted, failed } = res.data.data
-      message.success(`已接受 ${accepted} 条${failed ? `，${failed} 条失败` : ''}`)
-      fetchData()
+      }
+      setAcceptModal({ open: false, candidate: null, batchIds: null })
+      acceptForm.resetFields()
+      await fetchData()
+      await fetchCategories()
+    } catch (e: any) {
+      message.error(e?.response?.data?.message ?? '操作失败')
     } finally {
-      setBatchLoading(false)
+      setAccepting(false)
     }
   }
 
-  const handleBatchIgnore = async () => {
-    setBatchLoading(true)
+  // ── Ignore ────────────────────────────────────────────────────────────────
+
+  const handleIgnore = async (candidate: Candidate) => {
     try {
-      const res = await client.post('/knowledge-points/candidates/batch-ignore', { ids: selectedIds })
-      const { ignored, failed } = res.data.data
+      await candidatesApi.ignore(candidate.id)
+      message.success('已忽略')
+      await fetchData()
+    } catch {
+      message.error('操作失败')
+    }
+  }
+
+  const handleBatchIgnore = async (ids: string[]) => {
+    try {
+      const res = await candidatesApi.batchIgnore(ids)
+      const { ignored, failed } = (res as any).data.data
       message.success(`已忽略 ${ignored} 条${failed ? `，${failed} 条失败` : ''}`)
-      fetchData()
+      await fetchData()
+    } catch {
+      message.error('操作失败')
+    }
+  }
+
+  // ── Manual create ─────────────────────────────────────────────────────────
+
+  const handleManualCreate = async (values: { candidate_name: string; candidate_description?: string }) => {
+    setManualCreating(true)
+    try {
+      await candidatesApi.createManual(values)
+      message.success('手动候选知识点已创建')
+      setManualOpen(false)
+      manualForm.resetFields()
+      await fetchData()
     } finally {
-      setBatchLoading(false)
+      setManualCreating(false)
     }
   }
 
-  const pendingSelected = items.filter((i) => selectedIds.includes(i.id) && i.status === 'pending')
+  // ── Collapse items ────────────────────────────────────────────────────────
 
-  // ── 查看详情 ──────────────────────────────────────────────────────────────
+  const categoryTreeData = toCategoryTreeSelect(categoryTree)
 
-  const openDetail = async (row: Candidate) => {
-    setDetail(row)
-    setLinkedKp(null)
-    setSourceChunk(null)
-    setDrawerOpen(true)
+  const collapseItems = groups.map(group => {
+    const pendingItems = group.items.filter(i => i.status === 'pending')
+    const sel = groupSelections[group.key] ?? []
+    const pendingSel = sel.filter(id => group.items.find(i => i.id === id && i.status === 'pending'))
 
-    // 并发：查出处 chunk + 查关联知识点
-    const tasks: Promise<void>[] = []
-
-    if (row.document_chunk_id) {
-      setSourceLoading(true)
-      tasks.push(
-        client.get(`/documents/chunks/${row.document_chunk_id}`)
-          .then((res) => setSourceChunk(res.data.data))
-          .catch(() => setSourceChunk(null))
-          .finally(() => setSourceLoading(false))
-      )
+    const toggleSelect = (id: string) => {
+      setGroupSelections(prev => {
+        const cur = prev[group.key] ?? []
+        return {
+          ...prev,
+          [group.key]: cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id],
+        }
+      })
     }
 
-    if (row.status === 'accepted') {
-      setKpLoading(true)
-      tasks.push(
-        knowledgePointsApi.search(row.candidate_name, 1, 5)
-          .then((res) => {
-            const match = res.data.data.items.find((kp: any) => kp.name === row.candidate_name)
-            if (match) setLinkedKp({ id: match.id, name: match.name })
-          })
-          .catch(() => {})
-          .finally(() => setKpLoading(false))
-      )
+    const toggleAll = () => {
+      const allIds = pendingItems.map(i => i.id)
+      const cur = groupSelections[group.key] ?? []
+      const allSelected = allIds.every(id => cur.includes(id))
+      setGroupSelections(prev => ({
+        ...prev,
+        [group.key]: allSelected ? cur.filter(id => !allIds.includes(id)) : [...new Set([...cur, ...allIds])],
+      }))
     }
 
-    await Promise.all(tasks)
-  }
+    const headerExtra = (
+      <Space onClick={e => e.stopPropagation()}>
+        {pendingItems.length > 0 && (
+          <Tag color="processing">{pendingItems.length} 待审核</Tag>
+        )}
+        <Tag>{group.items.length} 条</Tag>
+        {group.isManual && (
+          <Button
+            size="small" type="dashed" icon={<PlusOutlined />}
+            onClick={e => { e.stopPropagation(); setManualOpen(true) }}
+          >
+            添加候选
+          </Button>
+        )}
+        {group.docId && (
+          <Button
+            size="small" type="link"
+            onClick={e => { e.stopPropagation(); navigate(`/documents/${group.docId}`) }}
+          >
+            查看文档 ↗
+          </Button>
+        )}
+      </Space>
+    )
 
-  // ── 表格列 ────────────────────────────────────────────────────────────────
-
-  const columns: ColumnsType<Candidate> = [
-    {
-      title: '候选名称',
-      dataIndex: 'candidate_name',
-      render: (v, row) => (
-        <Text
-          strong
-          style={{ cursor: 'pointer', color: '#1677ff' }}
-          onClick={() => openDetail(row)}
+    const batchBar = pendingSel.length > 0 && (
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px',
+        background: '#e6f4ff', borderRadius: 6, border: '1px solid #91caff', marginBottom: 8,
+      }}>
+        <Text>已选 <Text strong>{pendingSel.length}</Text> 条</Text>
+        <Button
+          size="small" type="primary" icon={<CheckOutlined />}
+          onClick={() => openBatchAccept(pendingSel)}
         >
-          {v}
-        </Text>
-      ),
-    },
-    {
-      title: '描述',
-      dataIndex: 'candidate_description',
-      ellipsis: true,
-      render: (v) => v || <Text type="secondary">—</Text>,
-    },
-    {
-      title: '置信度',
-      dataIndex: 'confidence_score',
-      width: 90,
-      render: (v: number | null) =>
-        v != null ? (
-          <Tag color={v >= 0.8 ? 'green' : v >= 0.6 ? 'orange' : 'red'}>
-            {(v * 100).toFixed(0)}%
-          </Tag>
+          批量接受
+        </Button>
+        <Popconfirm
+          title={`批量忽略 ${pendingSel.length} 条？`}
+          okText="确认" cancelText="取消" okButtonProps={{ danger: true }}
+          onConfirm={() => handleBatchIgnore(pendingSel)}
+        >
+          <Button size="small" danger icon={<CloseOutlined />}>批量忽略</Button>
+        </Popconfirm>
+        <Button size="small" onClick={() => setGroupSelections(prev => ({ ...prev, [group.key]: [] }))}>
+          取消
+        </Button>
+      </div>
+    )
+
+    const content = (
+      <div>
+        {batchBar}
+        {group.items.length === 0 ? (
+          <Text type="secondary" style={{ fontSize: 13 }}>暂无候选知识点</Text>
         ) : (
-          <Text type="secondary">—</Text>
-        ),
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      width: 90,
-      render: (s: string) =>
-        s === 'pending'
-          ? <Badge status="processing" text="待审核" />
-          : <Tag color={STATUS_COLOR[s]}>{STATUS_LABEL[s] ?? s}</Tag>,
-    },
-    {
-      title: '时间',
-      dataIndex: 'created_at',
-      width: 150,
-      render: (v) => new Date(v).toLocaleString('zh-CN'),
-    },
-    {
-      title: '操作',
-      width: 120,
-      render: (_, row) => (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {pendingItems.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0', marginBottom: 4 }}>
+                <input
+                  type="checkbox"
+                  checked={pendingItems.every(i => sel.includes(i.id))}
+                  onChange={toggleAll}
+                  style={{ cursor: 'pointer' }}
+                />
+                <Text type="secondary" style={{ fontSize: 12 }}>全选待审核</Text>
+              </div>
+            )}
+            {group.items.map(item => (
+              <div
+                key={item.id}
+                style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 10px',
+                  background: item.status === 'pending' ? '#fafafa' : '#f9f9f9',
+                  borderRadius: 6, border: '1px solid #f0f0f0',
+                }}
+              >
+                {item.status === 'pending' && (
+                  <input
+                    type="checkbox"
+                    checked={sel.includes(item.id)}
+                    onChange={() => toggleSelect(item.id)}
+                    style={{ marginTop: 3, cursor: 'pointer', flexShrink: 0 }}
+                  />
+                )}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <FileTextOutlined style={{ color: '#8c8c8c', flexShrink: 0 }} />
+                    <Text strong style={{ fontSize: 13 }}>{item.candidate_name}</Text>
+                    {item.status === 'pending'
+                      ? <Badge status="processing" text="待审核" />
+                      : <Tag color={STATUS_COLOR[item.status]} style={{ margin: 0 }}>{STATUS_LABEL[item.status] ?? item.status}</Tag>
+                    }
+                    {item.confidence_score != null && (
+                      <Tag color={item.confidence_score >= 0.8 ? 'green' : item.confidence_score >= 0.6 ? 'orange' : 'red'} style={{ margin: 0 }}>
+                        {(item.confidence_score * 100).toFixed(0)}%
+                      </Tag>
+                    )}
+                    {item.source_type === 'manual' && (
+                      <Tag color="cyan" style={{ margin: 0 }}>手动</Tag>
+                    )}
+                  </div>
+                  {item.candidate_description && (
+                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 2 }}>
+                      {item.candidate_description}
+                    </Text>
+                  )}
+                  <Text type="secondary" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+                    {new Date(item.created_at).toLocaleString('zh-CN')}
+                  </Text>
+                </div>
+                {item.status === 'pending' && (
+                  <Space style={{ flexShrink: 0 }}>
+                    <Button
+                      size="small" type="primary" icon={<CheckOutlined />}
+                      onClick={() => openAccept(item)}
+                    >
+                      接受
+                    </Button>
+                    <Popconfirm
+                      title={`忽略「${item.candidate_name}」？`}
+                      okText="忽略" cancelText="取消" okButtonProps={{ danger: true }}
+                      onConfirm={() => handleIgnore(item)}
+                    >
+                      <Button size="small" danger icon={<CloseOutlined />}>忽略</Button>
+                    </Popconfirm>
+                  </Space>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+
+    return {
+      key: group.key,
+      label: (
         <Space>
-          <Tooltip title="查看详情">
-            <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(row)} />
-          </Tooltip>
-          {row.status === 'pending' && (
-            <>
-              <Tooltip title="接受，创建知识点">
-                <Button size="small" type="primary" icon={<CheckOutlined />} onClick={() => handleAccept(row)} />
-              </Tooltip>
-              <Tooltip title="忽略">
-                <Button size="small" danger icon={<CloseOutlined />} onClick={() => handleIgnore(row)} />
-              </Tooltip>
-            </>
-          )}
+          <Text strong>{group.label}</Text>
+          {group.isManual && <Tag color="cyan">手动</Tag>}
         </Space>
       ),
-    },
-  ]
+      extra: headerExtra,
+      children: content,
+    }
+  })
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>候选知识点审核</Title>
-        <Select
-          value={statusFilter}
-          onChange={(v) => { setStatusFilter(v); setPage(1) }}
-          style={{ width: 120 }}
-          options={[
-            { label: '待审核', value: 'pending' },
-            { label: '已接受', value: 'accepted' },
-            { label: '已忽略', value: 'ignored' },
-            { label: '已合并', value: 'merged' },
-            { label: '全部', value: undefined },
-          ]}
-        />
+        <Space>
+          <Select
+            value={statusFilter}
+            onChange={v => setStatusFilter(v)}
+            placeholder="全部状态"
+            allowClear
+            style={{ width: 130 }}
+            options={[
+              { label: '待审核', value: 'pending' },
+              { label: '已接受', value: 'accepted' },
+              { label: '已忽略', value: 'ignored' },
+              { label: '已合并', value: 'merged' },
+            ]}
+          />
+          <Button
+            type="primary" icon={<PlusOutlined />}
+            onClick={() => setManualOpen(true)}
+          >
+            手动添加候选知识点
+          </Button>
+        </Space>
       </div>
 
-      {/* 批量操作工具栏 */}
-      {selectedIds.length > 0 && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 12, marginBottom: 12,
-          padding: '10px 16px', background: '#e6f4ff', borderRadius: 8, border: '1px solid #91caff',
-        }}>
-          <Text>
-            已选 <Text strong>{selectedIds.length}</Text> 条
-            {pendingSelected.length < selectedIds.length && (
-              <Text type="secondary" style={{ fontSize: 12, marginLeft: 4 }}>
-                （其中 {pendingSelected.length} 条待审核可操作）
-              </Text>
-            )}
-          </Text>
-          <Button
-            type="primary" size="small" icon={<CheckOutlined />}
-            loading={batchLoading} disabled={pendingSelected.length === 0}
-            onClick={handleBatchAccept}
-          >
-            批量接受
-          </Button>
-          <Popconfirm
-            title={`批量忽略 ${pendingSelected.length} 条待审核候选知识点？`}
-            okText="确认忽略" cancelText="取消" okButtonProps={{ danger: true }}
-            disabled={pendingSelected.length === 0}
-            onConfirm={handleBatchIgnore}
-          >
-            <Button
-              danger size="small" icon={<CloseOutlined />}
-              loading={batchLoading} disabled={pendingSelected.length === 0}
-            >
-              批量忽略
-            </Button>
-          </Popconfirm>
-          <Button size="small" onClick={() => setSelectedIds([])}>取消选择</Button>
-        </div>
+      {loading && <div style={{ color: '#999', textAlign: 'center', padding: 24 }}>加载中...</div>}
+      {!loading && (
+        <Collapse
+          defaultActiveKey={groups.filter(g => g.items.some(i => i.status === 'pending')).map(g => g.key)}
+          items={collapseItems}
+          style={{ background: 'transparent' }}
+        />
       )}
 
-      <Table
-        rowKey="id"
-        columns={columns}
-        dataSource={items}
-        loading={loading}
-        rowSelection={{
-          selectedRowKeys: selectedIds,
-          onChange: (keys) => setSelectedIds(keys as string[]),
-        }}
-        pagination={{
-          current: page,
-          pageSize,
-          total,
-          showSizeChanger: true,
-          pageSizeOptions: [10, 20, 50, 100],
-          onChange: (p, ps) => {
-            setPage(p)
-            setPageSize(ps)
-            fetchData(p, statusFilter, ps)
-          },
-          showTotal: (t) => `共 ${t} 条`,
-        }}
-      />
-
-      {/* 详情抽屉 */}
-      <Drawer
-        title="候选知识点详情"
-        open={drawerOpen}
-        onClose={() => setDrawerOpen(false)}
-        width={480}
-        extra={
-          detail?.status === 'pending' && (
-            <Space>
-              <Button type="primary" icon={<CheckOutlined />} onClick={() => handleAccept(detail)}>接受</Button>
-              <Button danger icon={<CloseOutlined />} onClick={() => handleIgnore(detail)}>忽略</Button>
-            </Space>
-          )
-        }
+      {/* Accept modal */}
+      <Modal
+        title={acceptModal.batchIds ? `批量接受 ${acceptModal.batchIds.length} 条候选知识点` : `接受候选知识点`}
+        open={acceptModal.open}
+        onCancel={() => { setAcceptModal({ open: false, candidate: null, batchIds: null }); acceptForm.resetFields() }}
+        footer={null}
+        width={520}
+        destroyOnClose
       >
-        {detail && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <Descriptions column={1} bordered size="small">
-              <Descriptions.Item label="候选名称">
-                <Text strong>{detail.candidate_name}</Text>
-              </Descriptions.Item>
-              <Descriptions.Item label="状态">
-                {detail.status === 'pending'
-                  ? <Badge status="processing" text="待审核" />
-                  : <Tag color={STATUS_COLOR[detail.status]}>{STATUS_LABEL[detail.status]}</Tag>}
-              </Descriptions.Item>
-              <Descriptions.Item label="置信度">
-                {detail.confidence_score != null
-                  ? <Tag color={detail.confidence_score >= 0.8 ? 'green' : detail.confidence_score >= 0.6 ? 'orange' : 'red'}>
-                      {(detail.confidence_score * 100).toFixed(1)}%
-                    </Tag>
-                  : '—'}
-              </Descriptions.Item>
-              <Descriptions.Item label="提取时间">
-                {new Date(detail.created_at).toLocaleString('zh-CN')}
-              </Descriptions.Item>
-            </Descriptions>
+        <Form form={acceptForm} layout="vertical" onFinish={handleAcceptSubmit} style={{ marginTop: 16 }}>
+          {!acceptModal.batchIds && (
+            <>
+              <Form.Item label="知识点名称" name="name">
+                <Input maxLength={255} showCount />
+              </Form.Item>
+              <Form.Item label="描述" name="description">
+                <Input.TextArea rows={3} maxLength={1000} showCount />
+              </Form.Item>
+            </>
+          )}
+          <Form.Item
+            label="目标分类"
+            name="category_id"
+            rules={[{ required: true, message: '请选择目标分类' }]}
+          >
+            <TreeSelect
+              treeData={categoryTreeData}
+              placeholder="选择目标分类（必须先在知识点管理中创建分类）"
+              treeDefaultExpandAll
+              showSearch
+              filterTreeNode={(val, node: any) => node.title?.toLowerCase().includes(val.toLowerCase())}
+              style={{ width: '100%' }}
+              notFoundContent={
+                <div style={{ padding: 12, color: '#999', fontSize: 13 }}>
+                  暂无分类，请先在「知识点管理」中创建分类
+                </div>
+              }
+            />
+          </Form.Item>
+          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+            <Space>
+              <Button onClick={() => { setAcceptModal({ open: false, candidate: null, batchIds: null }); acceptForm.resetFields() }}>
+                取消
+              </Button>
+              <Button type="primary" htmlType="submit" loading={accepting}>
+                {acceptModal.batchIds ? '批量接受' : '接受并创建'}
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
 
-            {detail.candidate_description && (
-              <div>
-                <Text strong style={{ display: 'block', marginBottom: 8 }}>描述</Text>
-                <Paragraph style={{ margin: 0, padding: '10px 12px', background: '#fafafa', borderRadius: 6, border: '1px solid #f0f0f0' }}>
-                  {detail.candidate_description}
-                </Paragraph>
-              </div>
-            )}
-
-            {/* 知识点出处 */}
-            {detail.document_chunk_id && (
-              <div>
-                <Text strong style={{ display: 'block', marginBottom: 8 }}>
-                  知识点出处
-                </Text>
-                {sourceLoading ? (
-                  <div style={{ color: '#999', fontSize: 13 }}>加载中...</div>
-                ) : sourceChunk ? (
-                  <div style={{ border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden' }}>
-                    {/* 文档信息 + 操作按钮 */}
-                    <div style={{ padding: '8px 12px', background: '#f5f5f5', borderBottom: '1px solid #e8e8e8', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                      {sourceChunk.document && (
-                        <Tag
-                          color="blue" style={{ margin: 0, cursor: 'pointer' }}
-                          onClick={() => { setDrawerOpen(false); navigate(`/documents/${sourceChunk.document!.id}`) }}
-                        >
-                          📄 {sourceChunk.document.title} ↗
-                        </Tag>
-                      )}
-                      <Tag style={{ margin: 0 }}>第 {sourceChunk.chunk_index + 1} 段</Tag>
-                      {sourceChunk.chapter_title && (
-                        <Tag color="geekblue" style={{ margin: 0 }}>{sourceChunk.chapter_title}</Tag>
-                      )}
-                      {/* 预览 / 下载按钮 */}
-                      {sourceChunk.document && (() => {
-                        const docId = sourceChunk.document!.id
-                        const fileName = sourceChunk.document!.file_name
-                        const isPdf = fileName.toLowerCase().endsWith('.pdf')
-
-                        const openFile = async (inline: boolean) => {
-                          try {
-                            const res = await client.get(
-                              `/documents/${docId}/download`,
-                              { params: { inline }, responseType: 'blob' }
-                            )
-                            const blob = new Blob([res.data], { type: res.headers['content-type'] })
-                            const url = URL.createObjectURL(blob)
-                            const a = document.createElement('a')
-                            a.href = url
-                            if (!inline) a.download = fileName
-                            else a.target = '_blank'
-                            document.body.appendChild(a)
-                            a.click()
-                            document.body.removeChild(a)
-                            setTimeout(() => URL.revokeObjectURL(url), 5000)
-                          } catch {
-                            message.error('文件获取失败')
-                          }
-                        }
-
-                        return (
-                          <Space size={4} style={{ marginLeft: 'auto' }}>
-                            {isPdf && (
-                              <Tooltip title="在浏览器中预览 PDF">
-                                <Button
-                                  size="small" type="link" icon={<FilePdfOutlined />}
-                                  style={{ padding: '0 4px', color: '#ff4d4f' }}
-                                  onClick={() => openFile(true)}
-                                >
-                                  预览
-                                </Button>
-                              </Tooltip>
-                            )}
-                            <Tooltip title="下载原始文件">
-                              <Button
-                                size="small" type="link" icon={<DownloadOutlined />}
-                                style={{ padding: '0 4px' }}
-                                onClick={() => openFile(false)}
-                              >
-                                下载
-                              </Button>
-                            </Tooltip>
-                          </Space>
-                        )
-                      })()}
-                    </div>
-                    <div style={{ padding: '10px 12px', maxHeight: 200, overflowY: 'auto', fontSize: 13, lineHeight: 1.7, color: '#333', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                      {sourceChunk.content}
-                    </div>
-                  </div>
-                ) : (
-                  <Text type="secondary" style={{ fontSize: 13 }}>原始文档块已删除或无法访问</Text>
-                )}
-              </div>
-            )}
-
-            {/* 已接受时显示对应知识点链接 */}
-            {detail.status === 'accepted' && (
-              <div style={{ padding: '12px 16px', background: '#f6ffed', borderRadius: 8, border: '1px solid #b7eb8f' }}>
-                <Text strong style={{ color: '#52c41a' }}>已创建对应知识点</Text>
-                {kpLoading && <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>查找中...</Text>}
-                {linkedKp && (
-                  <div style={{ marginTop: 8 }}>
-                    <Button
-                      type="link" icon={<LinkOutlined />} style={{ padding: 0 }}
-                      onClick={() => { setDrawerOpen(false); navigate('/knowledge-points') }}
-                    >
-                      前往知识点管理查看「{linkedKp.name}」
-                    </Button>
-                  </div>
-                )}
-                {!kpLoading && !linkedKp && (
-                  <div style={{ marginTop: 4 }}>
-                    <Button
-                      type="link" icon={<LinkOutlined />} style={{ padding: 0 }}
-                      onClick={() => { setDrawerOpen(false); navigate('/knowledge-points') }}
-                    >
-                      前往知识点管理
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </Drawer>
+      {/* Manual create modal */}
+      <Modal
+        title="手动添加候选知识点"
+        open={manualOpen}
+        onCancel={() => { setManualOpen(false); manualForm.resetFields() }}
+        footer={null}
+        width={480}
+        destroyOnClose
+      >
+        <Form form={manualForm} layout="vertical" onFinish={handleManualCreate} style={{ marginTop: 16 }}>
+          <Form.Item
+            label="候选名称"
+            name="candidate_name"
+            rules={[{ required: true, message: '请输入候选名称' }]}
+          >
+            <Input maxLength={255} showCount autoFocus />
+          </Form.Item>
+          <Form.Item label="描述" name="candidate_description">
+            <Input.TextArea rows={4} maxLength={1000} showCount />
+          </Form.Item>
+          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+            <Space>
+              <Button onClick={() => { setManualOpen(false); manualForm.resetFields() }}>取消</Button>
+              <Button type="primary" htmlType="submit" loading={manualCreating}>创建</Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   )
 }

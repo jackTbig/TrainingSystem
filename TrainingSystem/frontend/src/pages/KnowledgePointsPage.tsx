@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
-  Button, Form, Input, InputNumber, Modal, Popconfirm, Space, Tag, Tree,
+  Button, Form, Input, Modal, Popconfirm, Space, Tag, Tree,
   Typography, message, Descriptions, Empty, Divider, Tooltip,
 } from 'antd'
 import type { DataNode } from 'antd/es/tree'
@@ -40,7 +40,7 @@ export default function KnowledgePointsPage() {
   const [sourceChunk, setSourceChunk] = useState<SourceChunk>(undefined as any)
   const [sourceLoading, setSourceLoading] = useState(false)
 
-  // create modal
+  // create category modal
   const [createOpen, setCreateOpen] = useState(false)
   const [createParentId, setCreateParentId] = useState<string | undefined>()
   const [creating, setCreating] = useState(false)
@@ -66,17 +66,17 @@ export default function KnowledgePointsPage() {
 
   // ── CRUD ──────────────────────────────────────────────────────────
 
-  const openCreate = (parentId?: string) => {
+  const openCreateCategory = (parentId?: string) => {
     setCreateParentId(parentId)
     createForm.resetFields()
     setCreateOpen(true)
   }
 
-  const handleCreate = async (values: { name: string; description?: string; weight?: number }) => {
+  const handleCreateCategory = async (values: { name: string; description?: string }) => {
     setCreating(true)
     try {
-      await knowledgePointsApi.create({ ...values, parent_id: createParentId })
-      message.success('创建成功')
+      await knowledgePointsApi.createCategory({ ...values, parent_id: createParentId })
+      message.success('分类创建成功')
       setCreateOpen(false)
       await fetchTree()
     } finally {
@@ -86,11 +86,11 @@ export default function KnowledgePointsPage() {
 
   const openEdit = (node: KnowledgePointTree) => {
     setEditNode(node)
-    editForm.setFieldsValue({ name: node.name, description: node.description, weight: node.weight })
+    editForm.setFieldsValue({ name: node.name, description: node.description })
     setEditOpen(true)
   }
 
-  const handleEdit = async (values: { name: string; description?: string; weight?: number }) => {
+  const handleEdit = async (values: { name: string; description?: string }) => {
     if (!editNode) return
     setEditSaving(true)
     try {
@@ -119,27 +119,29 @@ export default function KnowledgePointsPage() {
 
   function toTreeData(nodes: KnowledgePointTree[]): DataNode[] {
     return nodes.map((n) => {
+      const isCategory = n.node_type === 'category'
       const hasChildren = n.children.length > 0
       return {
         key: n.id,
         icon: ({ expanded }: { expanded?: boolean }) =>
-          hasChildren
+          isCategory
             ? (expanded ? <FolderOpenOutlined style={{ color: '#faad14' }} /> : <FolderOutlined style={{ color: '#faad14' }} />)
-            : <FileOutlined style={{ color: '#8c8c8c' }} />,
+            : <FileOutlined style={{ color: '#1677ff' }} />,
         title: (
           <div className="kp-tree-node" style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
             <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {n.name}
             </span>
-            {n.weight > 0 && <Tag color="blue" style={{ margin: 0, flexShrink: 0 }}>权重 {n.weight}</Tag>}
             {n.status === 'archived' && <Tag color="default" style={{ margin: 0, flexShrink: 0 }}>已归档</Tag>}
             <span className="kp-actions" style={{ display: 'flex', gap: 2, flexShrink: 0 }}>
-              <Button
-                size="small" type="text" icon={<PlusOutlined />}
-                title="添加子知识点"
-                onClick={(e) => { e.stopPropagation(); openCreate(n.id) }}
-                style={{ padding: '0 4px', height: 20, fontSize: 12 }}
-              />
+              {isCategory && (
+                <Button
+                  size="small" type="text" icon={<PlusOutlined />}
+                  title="添加子分类"
+                  onClick={(e) => { e.stopPropagation(); openCreateCategory(n.id) }}
+                  style={{ padding: '0 4px', height: 20, fontSize: 12 }}
+                />
+              )}
               <Button
                 size="small" type="text" icon={<EditOutlined />}
                 title="编辑"
@@ -178,7 +180,7 @@ export default function KnowledgePointsPage() {
     const node = findNode(rawTree, keys[0] as string)
     setSelected(node)
     setSourceChunk(null)
-    if (node) {
+    if (node && node.node_type === 'knowledge_point') {
       setSourceLoading(true)
       client.get(`/knowledge-points/${node.id}/source`)
         .then(r => setSourceChunk(r.data.data))
@@ -216,8 +218,8 @@ export default function KnowledgePointsPage() {
         <Title level={4} style={{ margin: 0 }}>知识点管理</Title>
         <Space>
           <Button icon={<ReloadOutlined />} onClick={fetchTree} loading={loading}>刷新</Button>
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreate()}>
-            新建顶级知识点
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreateCategory()}>
+            新建顶级分类
           </Button>
         </Space>
       </div>
@@ -250,14 +252,32 @@ export default function KnowledgePointsPage() {
           {selected ? (
             <>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <Title level={5} style={{ margin: 0 }}>{selected.name}</Title>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {selected.node_type === 'category'
+                    ? <FolderOutlined style={{ color: '#faad14', fontSize: 18 }} />
+                    : <FileOutlined style={{ color: '#1677ff', fontSize: 18 }} />
+                  }
+                  <Title level={5} style={{ margin: 0 }}>{selected.name}</Title>
+                  <Tag color={selected.node_type === 'category' ? 'gold' : 'blue'}>
+                    {selected.node_type === 'category' ? '分类' : '知识点'}
+                  </Tag>
+                </div>
                 <Space>
-                  <Button size="small" icon={<PlusOutlined />} onClick={() => openCreate(selected.id)}>添加子知识点</Button>
+                  {selected.node_type === 'category' && (
+                    <Button size="small" icon={<PlusOutlined />} onClick={() => openCreateCategory(selected.id)}>
+                      添加子分类
+                    </Button>
+                  )}
                   <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(selected)}>编辑</Button>
                 </Space>
               </div>
+
               <Descriptions size="small" column={2} bordered>
-                <Descriptions.Item label="权重">{selected.weight}</Descriptions.Item>
+                <Descriptions.Item label="类型">
+                  <Tag color={selected.node_type === 'category' ? 'gold' : 'blue'}>
+                    {selected.node_type === 'category' ? '分类' : '知识点'}
+                  </Tag>
+                </Descriptions.Item>
                 <Descriptions.Item label="状态">
                   <Tag color={selected.status === 'active' ? 'success' : 'default'}>
                     {selected.status === 'active' ? '正常' : '已归档'}
@@ -273,122 +293,145 @@ export default function KnowledgePointsPage() {
                 )}
               </Descriptions>
 
-              {/* 知识点出处 */}
-              <Divider orientation="left" style={{ fontSize: 13 }}>知识点出处</Divider>
-              {sourceLoading ? (
-                <div style={{ color: '#999', fontSize: 13, padding: '8px 0' }}>加载中...</div>
-              ) : sourceChunk ? (
-                <div style={{ border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden' }}>
-                  <div style={{ padding: '8px 12px', background: '#f5f5f5', borderBottom: '1px solid #e8e8e8', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    {sourceChunk.document && (
-                      <Tag color="blue" style={{ margin: 0, cursor: 'pointer' }}
-                        onClick={() => navigate(`/documents/${sourceChunk!.document!.id}`)}>
-                        📄 {sourceChunk.document.title} ↗
-                      </Tag>
-                    )}
-                    <Tag style={{ margin: 0 }}>第 {sourceChunk.chunk_index + 1} 段</Tag>
-                    {sourceChunk.chapter_title && <Tag color="geekblue" style={{ margin: 0 }}>{sourceChunk.chapter_title}</Tag>}
-                    {sourceChunk.document && (
-                      <Space size={4} style={{ marginLeft: 'auto' }}>
-                        {sourceChunk.document.file_name.toLowerCase().endsWith('.pdf') && (
-                          <Tooltip title="在浏览器中预览 PDF">
-                            <Button size="small" type="link" icon={<FilePdfOutlined />}
-                              style={{ padding: '0 4px', color: '#ff4d4f' }}
-                              onClick={() => openFile(sourceChunk!.document!.id, sourceChunk!.document!.file_name, true)}>
-                              预览
-                            </Button>
-                          </Tooltip>
-                        )}
-                        <Tooltip title="下载原始文件">
-                          <Button size="small" type="link" icon={<DownloadOutlined />}
-                            style={{ padding: '0 4px' }}
-                            onClick={() => openFile(sourceChunk!.document!.id, sourceChunk!.document!.file_name, false)}>
-                            下载
-                          </Button>
-                        </Tooltip>
-                      </Space>
-                    )}
-                  </div>
-                  <div style={{ padding: '10px 12px', maxHeight: 180, overflowY: 'auto', fontSize: 13, lineHeight: 1.7, color: '#333', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                    {sourceChunk.content}
-                  </div>
-                </div>
-              ) : (
-                <Text type="secondary" style={{ fontSize: 13 }}>此知识点无文档出处（手动创建）</Text>
-              )}
-
-              {selected.children.length > 0 && (
+              {/* Category: show children */}
+              {selected.node_type === 'category' && (
                 <>
-                  <Divider orientation="left" style={{ fontSize: 13 }}>子知识点（{selected.children.length}）</Divider>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {selected.children.map((c) => (
-                      <div
-                        key={c.id}
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#fafafa', borderRadius: 6, cursor: 'pointer' }}
-                        onClick={() => setSelected(c)}
-                      >
-                        {c.children.length > 0 ? <FolderOutlined style={{ color: '#faad14' }} /> : <FileOutlined style={{ color: '#8c8c8c' }} />}
-                        <Text style={{ flex: 1 }}>{c.name}</Text>
-                        {c.weight > 0 && <Tag color="blue" style={{ margin: 0 }}>权重 {c.weight}</Tag>}
-                        {c.children.length > 0 && <Tag color="default" style={{ margin: 0 }}>{c.children.length} 子项</Tag>}
-                        {c.status === 'archived' && <Tag color="default" style={{ margin: 0 }}>已归档</Tag>}
-                      </div>
-                    ))}
-                  </div>
+                  <Divider orientation="left" style={{ fontSize: 13 }}>
+                    子节点（{selected.children.length}）
+                  </Divider>
+                  {selected.children.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {selected.children.map((c) => (
+                        <div
+                          key={c.id}
+                          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: '#fafafa', borderRadius: 6, cursor: 'pointer' }}
+                          onClick={() => {
+                            setSelected(c)
+                            setSourceChunk(null)
+                            if (c.node_type === 'knowledge_point') {
+                              setSourceLoading(true)
+                              client.get(`/knowledge-points/${c.id}/source`)
+                                .then(r => setSourceChunk(r.data.data))
+                                .catch(() => setSourceChunk(null))
+                                .finally(() => setSourceLoading(false))
+                            }
+                          }}
+                        >
+                          {c.node_type === 'category'
+                            ? <FolderOutlined style={{ color: '#faad14' }} />
+                            : <FileOutlined style={{ color: '#1677ff' }} />
+                          }
+                          <Text style={{ flex: 1 }}>{c.name}</Text>
+                          <Tag color={c.node_type === 'category' ? 'gold' : 'blue'} style={{ margin: 0 }}>
+                            {c.node_type === 'category' ? '分类' : '知识点'}
+                          </Tag>
+                          {c.children.length > 0 && (
+                            <Tag color="default" style={{ margin: 0 }}>{c.children.length} 子项</Tag>
+                          )}
+                          {c.status === 'archived' && <Tag color="default" style={{ margin: 0 }}>已归档</Tag>}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ color: '#bbb', textAlign: 'center', paddingTop: 24 }}>
+                      <FolderOpenOutlined style={{ fontSize: 28 }} />
+                      <div style={{ marginTop: 8 }}>暂无子节点</div>
+                      <Button type="link" onClick={() => openCreateCategory(selected.id)}>添加子分类</Button>
+                    </div>
+                  )}
                 </>
               )}
 
-              {selected.children.length === 0 && (
-                <div style={{ color: '#bbb', textAlign: 'center', paddingTop: 40 }}>
-                  <FileOutlined style={{ fontSize: 32 }} />
-                  <div style={{ marginTop: 8 }}>叶子节点，暂无子知识点</div>
-                  <Button type="link" onClick={() => openCreate(selected.id)}>添加子知识点</Button>
-                </div>
+              {/* KnowledgePoint: show source */}
+              {selected.node_type === 'knowledge_point' && (
+                <>
+                  <Divider orientation="left" style={{ fontSize: 13 }}>知识点出处</Divider>
+                  {sourceLoading ? (
+                    <div style={{ color: '#999', fontSize: 13, padding: '8px 0' }}>加载中...</div>
+                  ) : sourceChunk ? (
+                    <div style={{ border: '1px solid #e8e8e8', borderRadius: 8, overflow: 'hidden' }}>
+                      <div style={{ padding: '8px 12px', background: '#f5f5f5', borderBottom: '1px solid #e8e8e8', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        {sourceChunk.document && (
+                          <Tag color="blue" style={{ margin: 0, cursor: 'pointer' }}
+                            onClick={() => navigate(`/documents/${sourceChunk!.document!.id}`)}>
+                            {sourceChunk.document.title} ↗
+                          </Tag>
+                        )}
+                        <Tag style={{ margin: 0 }}>第 {sourceChunk.chunk_index + 1} 段</Tag>
+                        {sourceChunk.chapter_title && <Tag color="geekblue" style={{ margin: 0 }}>{sourceChunk.chapter_title}</Tag>}
+                        {sourceChunk.document && (
+                          <Space size={4} style={{ marginLeft: 'auto' }}>
+                            {sourceChunk.document.file_name.toLowerCase().endsWith('.pdf') && (
+                              <Tooltip title="在浏览器中预览 PDF">
+                                <Button size="small" type="link" icon={<FilePdfOutlined />}
+                                  style={{ padding: '0 4px', color: '#ff4d4f' }}
+                                  onClick={() => openFile(sourceChunk!.document!.id, sourceChunk!.document!.file_name, true)}>
+                                  预览
+                                </Button>
+                              </Tooltip>
+                            )}
+                            <Tooltip title="下载原始文件">
+                              <Button size="small" type="link" icon={<DownloadOutlined />}
+                                style={{ padding: '0 4px' }}
+                                onClick={() => openFile(sourceChunk!.document!.id, sourceChunk!.document!.file_name, false)}>
+                                下载
+                              </Button>
+                            </Tooltip>
+                          </Space>
+                        )}
+                      </div>
+                      <div style={{ padding: '10px 12px', maxHeight: 180, overflowY: 'auto', fontSize: 13, lineHeight: 1.7, color: '#333', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                        {sourceChunk.content}
+                      </div>
+                    </div>
+                  ) : (
+                    <Text type="secondary" style={{ fontSize: 13 }}>此知识点无文档出处（手动创建或来源已删除）</Text>
+                  )}
+                </>
               )}
             </>
           ) : (
             <div style={{ color: '#bbb', textAlign: 'center', paddingTop: 60 }}>
               <FolderOpenOutlined style={{ fontSize: 48 }} />
-              <div style={{ marginTop: 12 }}>点击左侧知识点查看详情</div>
+              <div style={{ marginTop: 12 }}>点击左侧节点查看详情</div>
             </div>
           )}
         </div>
       </div>
 
-      {/* 新建知识点 */}
+      {/* 新建分类 */}
       <Modal
-        title={createParentId ? '添加子知识点' : '新建顶级知识点'}
+        title={createParentId ? '添加子分类' : '新建顶级分类'}
         open={createOpen}
         onCancel={() => setCreateOpen(false)}
         footer={null}
         width={480}
+        destroyOnClose
       >
-        <Form form={createForm} layout="vertical" onFinish={handleCreate} style={{ marginTop: 16 }}>
-          <Form.Item label="名称" name="name" rules={[{ required: true, message: '请输入名称' }]}>
+        <Form form={createForm} layout="vertical" onFinish={handleCreateCategory} style={{ marginTop: 16 }}>
+          <Form.Item label="分类名称" name="name" rules={[{ required: true, message: '请输入分类名称' }]}>
             <Input maxLength={255} showCount autoFocus />
           </Form.Item>
           <Form.Item label="描述" name="description">
             <Input.TextArea rows={3} maxLength={500} showCount />
           </Form.Item>
-          <Form.Item label="权重（越大越重要）" name="weight" initialValue={0}>
-            <InputNumber min={0} max={100} style={{ width: '100%' }} />
-          </Form.Item>
           <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
             <Space>
               <Button onClick={() => setCreateOpen(false)}>取消</Button>
-              <Button type="primary" htmlType="submit" loading={creating}>创建</Button>
+              <Button type="primary" htmlType="submit" loading={creating}>创建分类</Button>
             </Space>
           </Form.Item>
         </Form>
       </Modal>
 
-      {/* 编辑知识点 */}
+      {/* 编辑 */}
       <Modal
         title={`编辑 — ${editNode?.name}`}
         open={editOpen}
         onCancel={() => setEditOpen(false)}
         footer={null}
         width={480}
+        destroyOnClose
       >
         <Form form={editForm} layout="vertical" onFinish={handleEdit} style={{ marginTop: 16 }}>
           <Form.Item label="名称" name="name" rules={[{ required: true, message: '请输入名称' }]}>
@@ -396,9 +439,6 @@ export default function KnowledgePointsPage() {
           </Form.Item>
           <Form.Item label="描述" name="description">
             <Input.TextArea rows={3} maxLength={500} showCount />
-          </Form.Item>
-          <Form.Item label="权重" name="weight">
-            <InputNumber min={0} max={100} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
             <Space>

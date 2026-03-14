@@ -47,6 +47,17 @@ class CandidateRepository:
         await self.db.flush()
         return c
 
+    async def create_manual(self, candidate_name: str, candidate_description: str | None = None) -> KnowledgePointCandidate:
+        c = KnowledgePointCandidate(
+            candidate_name=candidate_name,
+            candidate_description=candidate_description,
+            source_type="manual",
+            document_chunk_id=None,
+        )
+        self.db.add(c)
+        await self.db.flush()
+        return c
+
     async def update(self, c: KnowledgePointCandidate, **kwargs) -> KnowledgePointCandidate:
         for k, v in kwargs.items():
             setattr(c, k, v)
@@ -97,14 +108,18 @@ class KnowledgePointRepository:
         description: str | None = None,
         parent_id: uuid.UUID | None = None,
         weight: int = 0,
+        node_type: str = "knowledge_point",
         source_candidate_id: uuid.UUID | None = None,
     ) -> KnowledgePoint:
         kp = KnowledgePoint(name=name, description=description, parent_id=parent_id, weight=weight,
-                            source_candidate_id=source_candidate_id)
+                            node_type=node_type, source_candidate_id=source_candidate_id)
         self.db.add(kp)
         await self.db.flush()
         await self.db.refresh(kp)
         return kp
+
+    async def create_category(self, name: str, description: str | None = None, parent_id: uuid.UUID | None = None) -> KnowledgePoint:
+        return await self.create(name=name, description=description, parent_id=parent_id, node_type="category")
 
     async def update(self, kp: KnowledgePoint, **kwargs) -> KnowledgePoint:
         for k, v in kwargs.items():

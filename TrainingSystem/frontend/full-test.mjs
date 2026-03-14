@@ -115,7 +115,13 @@ async function hasSelector(page, sel) {
     ['新建角色按钮', p => hasSelector(p, 'button.ant-btn-primary')],
     ['点击权限按钮打开抽屉', async p => {
       await page.locator('.ant-table-row').first().waitFor({ timeout: 5000 })
-      await page.locator('.ant-table-row').first().locator('button').first().click()
+      // Find the non-disabled 权限 button (admin role button is disabled)
+      await p.evaluate(() => {
+        const btns = Array.from(document.querySelectorAll('.ant-table-row button'))
+        const btn = btns.find(b => b.textContent.includes('权限') && !b.disabled)
+        if (!btn) throw new Error('No enabled 权限 button found')
+        btn.click()
+      })
       await hasText(p, '配置权限')
       await page.keyboard.press('Escape')
       await page.waitForTimeout(300)
@@ -151,15 +157,15 @@ async function hasSelector(page, sel) {
 
   await test(page, '06-knowledge-candidates', '/knowledge-points/candidates', [
     ['页面标题"候选知识点"', p => hasText(p, '候选知识点')],
-    ['显示表格', p => hasSelector(p, '.ant-table')],
+    ['显示内容区域', p => hasSelector(p, '.ant-collapse, .ant-empty, .ant-spin')],
     ['状态筛选器', p => hasText(p, '待审核')],
   ])
 
   await test(page, '07-knowledge-points', '/knowledge-points', [
     ['页面标题"知识点管理"', p => hasText(p, '知识点管理')],
     ['显示知识点树或空状态', p => hasSelector(p, '.ant-tree, .ant-empty, h4')],
-    ['新建顶级知识点按钮', p => hasSelector(p, 'button.ant-btn-primary')],
-    ['点击新建知识点弹出Modal', async p => {
+    ['新建顶级分类按钮', p => hasSelector(p, 'button.ant-btn-primary')],
+    ['点击新建分类弹出Modal', async p => {
       await tryClick(p, 'button.ant-btn-primary')
       await page.waitForTimeout(500)
       await hasSelector(p, '.ant-modal-content')
@@ -210,7 +216,7 @@ async function hasSelector(page, sel) {
   ])
 
   await test(page, '10-reviews', '/reviews', [
-    ['页面标题"审核管理"', p => hasText(p, '审核管理')],
+    ['页面标题"审核任务"', p => hasText(p, '审核任务')],
     ['显示表格', p => hasSelector(p, '.ant-table')],
     ['存在筛选器', p => hasSelector(p, '.ant-select')],
   ])

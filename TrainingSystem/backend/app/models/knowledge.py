@@ -23,6 +23,8 @@ class KnowledgePointCandidate(UUIDMixin, Base):
     confidence_score: Mapped[float | None] = mapped_column(Numeric(5, 4), nullable=True)
     # pending / accepted / ignored / merged
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
+    # document / manual
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False, default="document", index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -31,7 +33,7 @@ class KnowledgePointCandidate(UUIDMixin, Base):
 
 
 class KnowledgePoint(UUIDMixin, TimestampMixin, Base):
-    """正式知识点"""
+    """分类节点或知识点叶子节点"""
     __tablename__ = "knowledge_points"
 
     name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
@@ -45,6 +47,8 @@ class KnowledgePoint(UUIDMixin, TimestampMixin, Base):
     # active / archived
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active", index=True)
     weight: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # category / knowledge_point
+    node_type: Mapped[str] = mapped_column(String(32), nullable=False, default="knowledge_point", index=True)
     # 来源候选知识点（从候选接受时记录）
     source_candidate_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),

@@ -12,8 +12,10 @@ from app.models.knowledge import KnowledgePoint, KnowledgePointCandidate
 from app.schemas.knowledge import (
     CandidateAcceptRequest,
     CandidateMergeRequest,
+    CategoryCreate,
     KnowledgePointCreate,
     KnowledgePointUpdate,
+    ManualCandidateCreate,
     RelationCreate,
 )
 from app.services.knowledge import CandidateService, KnowledgePointService
@@ -26,7 +28,7 @@ router = APIRouter()
 @router.get("/candidates", response_model=dict, summary="候选知识点列表")
 async def list_candidates(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=200),
     status: str | None = Query(None),
     _: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
@@ -39,27 +41,15 @@ async def list_candidates(
     )
 
 
-@router.post("/candidates/{cid}/accept", response_model=dict, summary="接受候选知识点")
-async def accept_candidate(
-    cid: uuid.UUID,
-    req: CandidateAcceptRequest,
+@router.post("/candidates/manual", response_model=dict, summary="手动创建候选知识点")
+async def create_manual_candidate(
+    data: ManualCandidateCreate,
     _: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
     svc = CandidateService(db)
-    kp = await svc.accept(cid, req)
-    return success_response(data=kp.model_dump(), message="已接受并创建知识点")
-
-
-@router.post("/candidates/{cid}/ignore", response_model=dict, summary="忽略候选知识点")
-async def ignore_candidate(
-    cid: uuid.UUID,
-    _: str = Depends(get_current_user_id),
-    db: AsyncSession = Depends(get_db),
-):
-    svc = CandidateService(db)
-    c = await svc.ignore(cid)
-    return success_response(data=c.model_dump(), message="已忽略")
+    c = await svc.create_manual(data)
+    return success_response(data=c.model_dump(), message="手动候选知识点已创建")
 
 
 @router.post("/candidates/batch-accept", response_model=dict, summary="批量接受候选知识点")
@@ -69,11 +59,16 @@ async def batch_accept_candidates(
     db: AsyncSession = Depends(get_db),
 ):
     ids = [uuid.UUID(i) for i in data.get("ids", [])]
+    category_id_str = data.get("category_id")
+    if not category_id_str:
+        from app.core.exceptions import BusinessException
+        raise BusinessException(code="CATEGORY_REQUIRED", message="批量接受需要指定目标分类")
+    category_id = uuid.UUID(category_id_str)
     svc = CandidateService(db)
     accepted, failed = 0, 0
     for cid in ids:
         try:
-            await svc.accept(cid, CandidateAcceptRequest())
+            await svc.accept(cid, CandidateAcceptRequest(category_id=category_id))
             accepted += 1
         except Exception:
             failed += 1
@@ -98,6 +93,29 @@ async def batch_ignore_candidates(
             failed += 1
     return success_response(data={"ignored": ignored, "failed": failed},
                             message=f"已忽略 {ignored} 条，失败 {failed} 条")
+
+
+@router.post("/candidates/{cid}/accept", response_model=dict, summary="接受候选知识点")
+async def accept_candidate(
+    cid: uuid.UUID,
+    req: CandidateAcceptRequest,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    svc = CandidateService(db)
+    kp = await svc.accept(cid, req)
+    return success_response(data=kp.model_dump(), message="已接受并创建知识点")
+
+
+@router.post("/candidates/{cid}/ignore", response_model=dict, summary="忽略候选知识点")
+async def ignore_candidate(
+    cid: uuid.UUID,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    svc = CandidateService(db)
+    c = await svc.ignore(cid)
+    return success_response(data=c.model_dump(), message="已忽略")
 
 
 @router.post("/candidates/{cid}/merge", response_model=dict, summary="合并到已有知识点")
@@ -138,6 +156,17 @@ async def search_kps(
         items=[i.model_dump() for i in items],
         total=total, page=page, page_size=page_size,
     )
+
+
+@router.post("/categories", response_model=dict, summary="创建分类")
+async def create_category(
+    data: CategoryCreate,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    svc = KnowledgePointService(db)
+    cat = await svc.create_category(data)
+    return success_response(data=cat.model_dump())
 
 
 @router.post("", response_model=dict, summary="创建知识点")

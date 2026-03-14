@@ -4,8 +4,6 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
-# ── 候选知识点 ────────────────────────────────────────────────────────────────
-
 class CandidateOut(BaseModel):
     id: uuid.UUID
     document_chunk_id: uuid.UUID | None
@@ -13,25 +11,30 @@ class CandidateOut(BaseModel):
     candidate_description: str | None
     confidence_score: float | None
     status: str
+    source_type: str  # document / manual
+    # denormalized document info for grouped display
+    document_id: str | None = None
+    document_title: str | None = None
+    document_file_name: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
 
 
 class CandidateAcceptRequest(BaseModel):
-    """接受候选知识点，可覆盖名称/描述，并指定归属父节点"""
     name: str | None = Field(None, min_length=1, max_length=255)
     description: str | None = None
-    parent_id: uuid.UUID | None = None
-    weight: int = 0
+    category_id: uuid.UUID  # required: must assign to a category
+
+
+class ManualCandidateCreate(BaseModel):
+    candidate_name: str = Field(..., min_length=1, max_length=255)
+    candidate_description: str | None = None
 
 
 class CandidateMergeRequest(BaseModel):
-    """合并到已有知识点"""
     target_knowledge_point_id: uuid.UUID
 
-
-# ── 知识点 ────────────────────────────────────────────────────────────────────
 
 class KnowledgePointOut(BaseModel):
     id: uuid.UUID
@@ -40,6 +43,7 @@ class KnowledgePointOut(BaseModel):
     parent_id: uuid.UUID | None
     status: str
     weight: int
+    node_type: str  # category / knowledge_point
     source_candidate_id: uuid.UUID | None = None
     created_at: datetime
     updated_at: datetime
@@ -48,10 +52,15 @@ class KnowledgePointOut(BaseModel):
 
 
 class KnowledgePointTree(KnowledgePointOut):
-    """带子节点，用于树形展示"""
     children: list["KnowledgePointTree"] = []
 
     model_config = {"from_attributes": True}
+
+
+class CategoryCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    description: str | None = None
+    parent_id: uuid.UUID | None = None
 
 
 class KnowledgePointCreate(BaseModel):
@@ -68,8 +77,6 @@ class KnowledgePointUpdate(BaseModel):
     status: str | None = None
     weight: int | None = Field(None, ge=0)
 
-
-# ── 关联 ──────────────────────────────────────────────────────────────────────
 
 class RelationCreate(BaseModel):
     target_id: uuid.UUID
