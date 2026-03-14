@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Body, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user_id, get_db
@@ -56,6 +56,44 @@ async def ignore_candidate(
     svc = CandidateService(db)
     c = await svc.ignore(cid)
     return success_response(data=c.model_dump(), message="已忽略")
+
+
+@router.post("/candidates/batch-accept", response_model=dict, summary="批量接受候选知识点")
+async def batch_accept_candidates(
+    data: dict = Body(...),
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    ids = [uuid.UUID(i) for i in data.get("ids", [])]
+    svc = CandidateService(db)
+    accepted, failed = 0, 0
+    for cid in ids:
+        try:
+            await svc.accept(cid, CandidateAcceptRequest())
+            accepted += 1
+        except Exception:
+            failed += 1
+    return success_response(data={"accepted": accepted, "failed": failed},
+                            message=f"已接受 {accepted} 条，失败 {failed} 条")
+
+
+@router.post("/candidates/batch-ignore", response_model=dict, summary="批量忽略候选知识点")
+async def batch_ignore_candidates(
+    data: dict = Body(...),
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    ids = [uuid.UUID(i) for i in data.get("ids", [])]
+    svc = CandidateService(db)
+    ignored, failed = 0, 0
+    for cid in ids:
+        try:
+            await svc.ignore(cid)
+            ignored += 1
+        except Exception:
+            failed += 1
+    return success_response(data={"ignored": ignored, "failed": failed},
+                            message=f"已忽略 {ignored} 条，失败 {failed} 条")
 
 
 @router.post("/candidates/{cid}/merge", response_model=dict, summary="合并到已有知识点")
