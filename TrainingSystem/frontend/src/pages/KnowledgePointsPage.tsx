@@ -216,7 +216,12 @@ export default function KnowledgePointsPage() {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>知识点管理</Title>
-        <Button icon={<ReloadOutlined />} onClick={fetchTree} loading={loading}>刷新</Button>
+        <Space>
+          <Button icon={<ReloadOutlined />} onClick={fetchTree} loading={loading}>刷新</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => openCreateCategory()}>
+            新建顶级分类
+          </Button>
+        </Space>
       </div>
 
       <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
