@@ -5,10 +5,11 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
-  CloudUploadOutlined, InboxOutlined, ReloadOutlined, SyncOutlined,
+  CloudUploadOutlined, EyeOutlined, InboxOutlined, ReloadOutlined, SyncOutlined,
 } from '@ant-design/icons'
 import type { DocumentListItem } from '@/api/documents'
 import { documentsApi } from '@/api/documents'
+import client from '@/api/client'
 
 const { Dragger } = Upload
 const { Title } = Typography
@@ -72,6 +73,18 @@ export default function DocumentsPage() {
     } catch {}
   }
 
+  const handlePreview = async (id: string) => {
+    try {
+      const res = await client.get(`/documents/${id}/download`, { params: { inline: true }, responseType: 'blob' })
+      const blob = new Blob([res.data], { type: res.headers['content-type'] })
+      const url = URL.createObjectURL(blob)
+      window.open(url, '_blank')
+      setTimeout(() => URL.revokeObjectURL(url), 30000)
+    } catch {
+      message.error('文件预览失败')
+    }
+  }
+
   const handleArchive = async (id: string) => {
     Modal.confirm({
       title: '确认归档',
@@ -110,9 +123,12 @@ export default function DocumentsPage() {
     },
     {
       title: '操作',
-      width: 220,
+      width: 260,
       render: (_, row) => (
         <Space>
+          <Tooltip title="在浏览器中预览文件（PDF 内联，其他格式下载）">
+            <Button size="small" icon={<EyeOutlined />} onClick={() => handlePreview(row.id)}>预览</Button>
+          </Tooltip>
           {row.status === 'parsed' && (
             <Button size="small" onClick={() => navigate(`/documents/${row.id}`)}>解析结果</Button>
           )}
