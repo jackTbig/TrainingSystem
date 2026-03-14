@@ -413,26 +413,17 @@ export default function CourseDetailPage() {
       <Modal
         title="AI 生成进度"
         open={!!genTaskId}
-        footer={
-          genStatus === 'succeeded' || genStatus === 'failed' || genStatus === 'cancelled'
-            ? <Button type="primary" onClick={() => setGenTaskId(null)}>关闭</Button>
-            : null
-        }
-        closable={false}
-        maskClosable={false}
+        onCancel={() => setGenTaskId(null)}
+        footer={<Button type="primary" onClick={() => setGenTaskId(null)}>关闭</Button>}
         width={440}
       >
         <div style={{ textAlign: 'center', padding: '16px 0' }}>
-          {genStatus === 'queued' && (
+          {(genStatus === 'queued' || genStatus === 'running') && (
             <>
               <Spin indicator={<LoadingOutlined style={{ fontSize: 32 }} spin />} />
-              <div style={{ marginTop: 12, color: '#666' }}>任务排队中...</div>
-            </>
-          )}
-          {genStatus === 'processing' && (
-            <>
-              <Spin indicator={<LoadingOutlined style={{ fontSize: 32 }} spin />} />
-              <div style={{ marginTop: 12, color: '#666' }}>AI 正在生成课程内容，请稍候...</div>
+              <div style={{ marginTop: 12, color: '#666' }}>
+                {genStatus === 'queued' ? '任务排队中...' : 'AI 正在生成课程内容，请稍候...'}
+              </div>
             </>
           )}
           {genStatus === 'succeeded' && (
@@ -455,6 +446,11 @@ export default function CourseDetailPage() {
               </div>
             </div>
           )}
+          <div style={{ marginTop: 12 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              可关闭此窗口，在「<a onClick={() => { setGenTaskId(null); navigate('/async-jobs') }}>异步任务</a>」页查看所有后台任务进度
+            </Text>
+          </div>
         </div>
       </Modal>
     </div>

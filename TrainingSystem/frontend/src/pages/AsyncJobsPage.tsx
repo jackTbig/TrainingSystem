@@ -7,9 +7,9 @@ import client from '@/api/client'
 const { Title, Text } = Typography
 
 interface JobRow {
-  id: string; job_type: string; biz_type: string | null; biz_id: string | null
+  id: string; job_type: string; biz_label: string; biz_id: string | null
   status: string; retry_count: number; error_message: string | null
-  queued_at: string; started_at: string | null; finished_at: string | null
+  created_at: string; started_at: string | null; finished_at: string | null
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -47,7 +47,7 @@ export default function AsyncJobsPage() {
       const params: Record<string, unknown> = { page: p, page_size: 20 }
       if (statusFilter) params.status = statusFilter
       if (typeFilter) params.job_type = typeFilter
-      const res = await client.get('/system/async-jobs', { params })
+      const res = await client.get('/system/bg-tasks', { params })
       setRows(res.data.data.items)
       setTotal(res.data.data.total)
     } finally {
@@ -59,18 +59,14 @@ export default function AsyncJobsPage() {
 
   const columns: ColumnsType<JobRow> = [
     {
-      title: '任务类型', dataIndex: 'job_type', width: 120,
-      render: (v) => <Tag color="blue">{JOB_TYPE_LABEL[v] ?? v}</Tag>,
-    },
-    {
-      title: '业务类型', dataIndex: 'biz_type', width: 100,
-      render: (v) => v ? <Tag>{v}</Tag> : '—',
+      title: '任务类型', dataIndex: 'biz_label', width: 110,
+      render: (v, r) => <Tag color="blue">{JOB_TYPE_LABEL[r.job_type] ?? v}</Tag>,
     },
     {
       title: '状态', dataIndex: 'status', width: 90,
       render: (s) => <Tag color={STATUS_COLOR[s]}>{STATUS_LABEL[s] ?? s}</Tag>,
     },
-    { title: '重试', dataIndex: 'retry_count', width: 60 },
+    { title: '重试', dataIndex: 'retry_count', width: 55 },
     {
       title: '用时', width: 90,
       render: (_, r) => duration(r.started_at, r.finished_at),
@@ -84,7 +80,7 @@ export default function AsyncJobsPage() {
       ) : '—',
     },
     {
-      title: '入队时间', dataIndex: 'queued_at', width: 160,
+      title: '创建时间', dataIndex: 'created_at', width: 160,
       render: (v) => new Date(v).toLocaleString('zh-CN'),
     },
   ]
@@ -92,7 +88,7 @@ export default function AsyncJobsPage() {
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>异步任务</Title>
+        <Title level={4} style={{ margin: 0 }}>后台任务</Title>
         <Space>
           <Select
             placeholder="状态" allowClear style={{ width: 100 }}

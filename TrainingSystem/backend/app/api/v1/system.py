@@ -153,3 +153,62 @@ async def list_async_jobs(
         "finished_at": j.finished_at.isoformat() if j.finished_at else None,
     } for j in jobs]
     return paginated_response(items=items, total=total, page=page, page_size=page_size)
+
+
+@router.get("/bg-tasks", response_model=dict, summary="后台任务统一视图（文档解析+课程生成+题目生成）")
+async def list_bg_tasks(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    status: str | None = Query(None),
+    job_type: str | None = Query(None),
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.document import DocumentParseTask
+    from app.models.course import CourseGenerationTask
+    from app.models.question import QuestionGenerationTask
+
+    all_items: list[dict] = []
+
+    if not job_type or job_type == "document_parse":
+        q = select(DocumentParseTask)
+        if status:
+            q = q.where(DocumentParseTask.status == status)
+        for r in (await db.execute(q.order_by(desc(DocumentParseTask.created_at)).limit(200))).scalars().all():
+            all_items.append({
+                "id": str(r.id), "job_type": "document_parse", "biz_label": "文档解析",
+                "biz_id": str(r.document_version_id), "status": r.status,
+                "retry_count": r.retry_count, "error_message": r.error_message,
+                "created_at": r.created_at.isoformat(),
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "finished_at": r.finished_at.isoformat() if r.finished_at else None,
+            })
+
+    if not job_type or job_type == "course_generate":
+        q = select(CourseGenerationTask)
+        if status:
+            q = q.where(CourseGenerationTask.status == status)
+        for r in (await db.execute(q.order_by(desc(CourseGenerationTask.created_at)).limit(200))).scalars().all():
+            all_items.append({
+                "id": str(r.id), "job_type": "course_generate", "biz_label": "课程生成",
+                "biz_id": str(r.course_id) if r.course_id else None, "status": r.status,
+                "retry_count": r.retry_count, "error_message": r.error_message,
+                "created_at": r.created_at.isoformat(), "started_at": None, "finished_at": None,
+            })
+
+    if not job_type or job_type == "question_generate":
+        q = select(QuestionGenerationTask)
+        if status:
+            q = q.where(QuestionGenerationTask.status == status)
+        for r in (await db.execute(q.order_by(desc(QuestionGenerationTask.created_at)).limit(200))).scalars().all():
+            all_items.append({
+                "id": str(r.id), "job_type": "question_generate", "biz_label": "题目生成",
+                "biz_id": None, "status": r.status,
+                "retry_count": r.retry_count, "error_message": r.error_message,
+                "created_at": r.created_at.isoformat(), "started_at": None, "finished_at": None,
+            })
+
+    all_items.sort(key=lambda x: x["created_at"], reverse=True)
+    total = len(all_items)
+    start = (page - 1) * page_size
+    return paginated_response(items=all_items[start:start + page_size], total=total, page=page, page_size=page_size)

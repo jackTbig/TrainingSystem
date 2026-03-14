@@ -15,6 +15,31 @@ import { storage } from '@/utils/storage'
 
 const { Header, Sider, Content } = Layout
 
+function getAllLeaves(items: any[]): { key: string; parentKey?: string }[] {
+  const result: { key: string; parentKey?: string }[] = []
+  for (const item of items) {
+    if (item.children?.length) {
+      for (const c of item.children) result.push({ key: c.key, parentKey: item.key })
+    } else {
+      result.push({ key: item.key })
+    }
+  }
+  return result
+}
+
+function resolveSelectedKey(path: string, items: any[]): string {
+  const leaves = getAllLeaves(items)
+  const matches = leaves.filter(l => path === l.key || path.startsWith(l.key + '/'))
+  if (!matches.length) return path
+  return matches.sort((a, b) => b.key.length - a.key.length)[0].key
+}
+
+function resolveParentKeys(selectedKey: string, items: any[]): string[] {
+  const leaves = getAllLeaves(items)
+  const leaf = leaves.find(l => l.key === selectedKey)
+  return leaf?.parentKey ? [leaf.parentKey] : []
+}
+
 // admin: true means only visible to users with 'admin' role
 const allMenuItems = [
   { key: '/dashboard', icon: <DashboardOutlined />, label: '首页' },
@@ -57,7 +82,7 @@ const allMenuItems = [
   {
     key: 'system2', icon: <ThunderboltOutlined />, label: '系统审计', admin: true,
     children: [
-      { key: '/async-jobs', icon: <ThunderboltOutlined />, label: '异步任务' },
+      { key: '/async-jobs', icon: <ThunderboltOutlined />, label: '后台任务' },
       { key: '/audit-logs', icon: <FileSearchOutlined />, label: '审计日志' },
     ],
   },
@@ -80,6 +105,7 @@ export default function MainLayout() {
   const location = useLocation()
   const dispatch = useDispatch()
   const user = useSelector((state: RootState) => state.auth.user)
+  const [openKeys, setOpenKeys] = useState<string[]>([])
 
   // Re-fetch fresh user info on mount so roles are always current
   useEffect(() => {
@@ -106,6 +132,13 @@ export default function MainLayout() {
   ) ?? false
   const menuItems = buildMenu(isAdmin)
 
+  const selectedKey = resolveSelectedKey(location.pathname, menuItems)
+
+  useEffect(() => {
+    const parents = resolveParentKeys(selectedKey, menuItems)
+    setOpenKeys(prev => [...new Set([...prev, ...parents])])
+  }, [selectedKey])
+
   const handleLogout = () => {
     dispatch(logout())
     navigate('/login')
@@ -127,8 +160,9 @@ export default function MainLayout() {
         <Menu
           theme="dark"
           mode="inline"
-          selectedKeys={[location.pathname]}
-          defaultOpenKeys={[]}
+          selectedKeys={[selectedKey]}
+          openKeys={openKeys}
+          onOpenChange={(keys) => setOpenKeys(keys as string[])}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
         />

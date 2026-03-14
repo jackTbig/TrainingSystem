@@ -266,7 +266,7 @@ async function hasSelector(page, sel) {
 
   // ── 系统审计 ──────────────────────────────────────────
   await test(page, '16-async-jobs', '/async-jobs', [
-    ['页面标题"异步任务"', p => hasText(p, '异步任务')],
+    ['页面标题"后台任务"', p => hasText(p, '后台任务')],
     ['显示表格', p => hasSelector(p, '.ant-table')],
     ['状态筛选器', p => hasText(p, '状态')],
     ['任务类型筛选器', p => hasText(p, '任务类型')],
