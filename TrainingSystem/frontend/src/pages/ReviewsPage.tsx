@@ -10,8 +10,8 @@ import client from '@/api/client'
 const { Title, Text } = Typography
 
 interface ReviewRow {
-  id: string; content_type: string; content_id: string; content_version_id: string
-  review_stage: string; status: string; created_at: string
+  id: string; content_type: string; content_id: string; content_title: string | null
+  content_version_id: string; review_stage: string; status: string; created_at: string
 }
 
 interface ReviewDetail {
@@ -110,8 +110,8 @@ export default function ReviewsPage() {
       render: (v) => <Tag>{TYPE_LABEL[v] ?? v}</Tag>,
     },
     {
-      title: '内容ID', dataIndex: 'content_id', width: 90,
-      render: (v) => <Text code style={{ fontSize: 11 }}>{v.slice(0, 8)}…</Text>,
+      title: '内容标题', dataIndex: 'content_title', ellipsis: true,
+      render: (v, row) => v ? <span>{v}</span> : <Text code style={{ fontSize: 11 }}>{row.content_id.slice(0, 8)}…</Text>,
     },
     {
       title: '状态', dataIndex: 'status', width: 90,

@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Button, Card, Collapse, Form, Input, InputNumber, Modal,
-  Space, Tag, TreeSelect, Typography, message,
+  Space, Tag, TreeSelect, Typography, message, Spin, Alert,
 } from 'antd'
-import { ArrowLeftOutlined, PlusOutlined, RollbackOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, LoadingOutlined, PlusOutlined, RollbackOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import MDEditor from '@uiw/react-md-editor'
 import type { Course, CourseVersion } from '@/api/courses'
 import { coursesApi } from '@/api/courses'
@@ -95,6 +95,13 @@ export default function CourseDetailPage() {
   const [aiGenForm] = Form.useForm()
   const [kpTree, setKpTree] = useState<any[]>([])
   const [selectedKpIds, setSelectedKpIds] = useState<string[]>([])
+  // AI generation progress
+  const [genTaskId, setGenTaskId] = useState<string | null>(null)
+  const [genStatus, setGenStatus] = useState<string>('queued')
+  const [genError, setGenError] = useState<string | null>(null)
+  const [genKpIds, setGenKpIds] = useState<string[]>([])
+  const [latestGenTask, setLatestGenTask] = useState<any>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const load = async () => {
     if (!courseId) return
@@ -115,7 +122,49 @@ export default function CourseDetailPage() {
   useEffect(() => {
     load()
     client.get('/knowledge-points/tree').then(r => setKpTree(toTreeSelectData(r.data.data))).catch(() => {})
+    if (courseId) {
+      client.get(`/courses/${courseId}/generation-tasks`).then(r => {
+        const tasks = r.data.data
+        if (tasks.length > 0) setLatestGenTask(tasks[0])
+      }).catch(() => {})
+    }
   }, [courseId])
+
+  // KP name lookup helper
+  const findKpName = (nodes: any[], id: string): string | null => {
+    for (const n of nodes) {
+      if (n.value === id) return n.title
+      const found = findKpName(n.children ?? [], id)
+      if (found) return found
+    }
+    return null
+  }
+
+  // Poll generation task status
+  const startPolling = (taskId: string) => {
+    if (pollRef.current) clearInterval(pollRef.current)
+    pollRef.current = setInterval(async () => {
+      try {
+        const res = await client.get(`/courses/${courseId}/generation-tasks/${taskId}`)
+        const { status, error_message } = res.data.data
+        setGenStatus(status)
+        setGenError(error_message ?? null)
+        if (status === 'succeeded' || status === 'failed' || status === 'cancelled') {
+          clearInterval(pollRef.current!)
+          pollRef.current = null
+          if (status === 'succeeded') {
+            message.success('AI 生成完成，课程已更新')
+            await load()
+            client.get(`/courses/${courseId}/generation-tasks`).then(r => {
+              if (r.data.data.length > 0) setLatestGenTask(r.data.data[0])
+            }).catch(() => {})
+          }
+        }
+      } catch { /* ignore */ }
+    }, 2500)
+  }
+
+  useEffect(() => () => { if (pollRef.current) clearInterval(pollRef.current) }, [])
 
   const handleAddVersion = async (values: { title: string; summary?: string }) => {
     if (!courseId) return
@@ -150,14 +199,19 @@ export default function CourseDetailPage() {
     if (!courseId) return
     setAiGenerating(true)
     try {
-      await client.post(`/courses/${courseId}/ai-generate`, {
+      const res = await client.post(`/courses/${courseId}/ai-generate`, {
         knowledge_point_ids: selectedKpIds,
         chapter_count: values.chapter_count,
       })
-      message.success('AI 生成任务已提交，Worker 处理完成后会自动创建新版本，请稍后刷新')
+      const taskId = res.data.data.task_id
+      setGenTaskId(taskId)
+      setGenStatus('queued')
+      setGenError(null)
+      setGenKpIds(selectedKpIds)
       setAiGenOpen(false)
       aiGenForm.resetFields()
       setSelectedKpIds([])
+      startPolling(taskId)
     } catch {
       message.error('提交失败，请检查 AI Worker 是否运行')
     } finally {
@@ -196,6 +250,20 @@ export default function CourseDetailPage() {
       </Space>
 
       <Title level={4}>{course.title}</Title>
+
+      {/* 最近一次生成涉及的知识点 */}
+      {latestGenTask?.config?.knowledge_point_ids?.length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <Text type="secondary" style={{ fontSize: 13 }}>涉及知识点：</Text>
+          {(latestGenTask.config.knowledge_point_ids as string[]).map(id => {
+            const name = findKpName(kpTree, id)
+            return name ? <Tag key={id} color="blue" style={{ margin: '0 4px 4px 0' }}>{name}</Tag> : null
+          })}
+          <Tag color="default" style={{ margin: '0 4px 4px 0' }}>
+            章节数：{latestGenTask.config.chapter_count}
+          </Tag>
+        </div>
+      )}
 
       {/* 版本选择 */}
       <div style={{ marginBottom: 16 }}>
@@ -339,6 +407,55 @@ export default function CourseDetailPage() {
             </Space>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* AI 生成进度弹窗 */}
+      <Modal
+        title="AI 生成进度"
+        open={!!genTaskId}
+        footer={
+          genStatus === 'succeeded' || genStatus === 'failed' || genStatus === 'cancelled'
+            ? <Button type="primary" onClick={() => setGenTaskId(null)}>关闭</Button>
+            : null
+        }
+        closable={false}
+        maskClosable={false}
+        width={440}
+      >
+        <div style={{ textAlign: 'center', padding: '16px 0' }}>
+          {genStatus === 'queued' && (
+            <>
+              <Spin indicator={<LoadingOutlined style={{ fontSize: 32 }} spin />} />
+              <div style={{ marginTop: 12, color: '#666' }}>任务排队中...</div>
+            </>
+          )}
+          {genStatus === 'processing' && (
+            <>
+              <Spin indicator={<LoadingOutlined style={{ fontSize: 32 }} spin />} />
+              <div style={{ marginTop: 12, color: '#666' }}>AI 正在生成课程内容，请稍候...</div>
+            </>
+          )}
+          {genStatus === 'succeeded' && (
+            <Alert message="生成成功！课程章节已更新。" type="success" showIcon />
+          )}
+          {genStatus === 'failed' && (
+            <Alert message={`生成失败：${genError ?? '未知错误'}`} type="error" showIcon />
+          )}
+          {genStatus === 'cancelled' && (
+            <Alert message="任务已取消" type="warning" showIcon />
+          )}
+          {genKpIds.length > 0 && (
+            <div style={{ marginTop: 12, textAlign: 'left' }}>
+              <Text type="secondary" style={{ fontSize: 12 }}>涉及知识点：</Text>
+              <div style={{ marginTop: 4 }}>
+                {genKpIds.map(id => {
+                  const name = findKpName(kpTree, id)
+                  return name ? <Tag key={id} color="blue" style={{ margin: '2px' }}>{name}</Tag> : null
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </Modal>
     </div>
   )

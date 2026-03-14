@@ -245,3 +245,53 @@ async def ai_generate_course(
     })
 
     return success_response(data={"task_id": str(task.id), "status": "queued"})
+
+
+@router.get("/{course_id}/generation-tasks/{task_id}", response_model=dict, summary="AI生成任务状态")
+async def get_generation_task_status(
+    course_id: uuid.UUID,
+    task_id: uuid.UUID,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.course import CourseGenerationTask
+    from sqlalchemy import select
+    task = (await db.execute(
+        select(CourseGenerationTask).where(
+            CourseGenerationTask.id == task_id,
+            CourseGenerationTask.course_id == course_id,
+        )
+    )).scalar_one_or_none()
+    if not task:
+        from app.core.exceptions import NotFoundException
+        raise NotFoundException(code="TASK_NOT_FOUND", message="任务不存在")
+    return success_response(data={
+        "task_id": str(task.id),
+        "status": task.status,
+        "error_message": task.error_message,
+        "config": task.config,
+        "created_at": task.created_at.isoformat(),
+    })
+
+
+@router.get("/{course_id}/generation-tasks", response_model=dict, summary="课程AI生成任务列表")
+async def list_generation_tasks(
+    course_id: uuid.UUID,
+    _: str = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+):
+    from app.models.course import CourseGenerationTask
+    from sqlalchemy import select, desc
+    tasks = list((await db.execute(
+        select(CourseGenerationTask)
+        .where(CourseGenerationTask.course_id == course_id)
+        .order_by(desc(CourseGenerationTask.created_at))
+        .limit(10)
+    )).scalars())
+    return success_response(data=[{
+        "task_id": str(t.id),
+        "status": t.status,
+        "error_message": t.error_message,
+        "config": t.config,
+        "created_at": t.created_at.isoformat(),
+    } for t in tasks])
