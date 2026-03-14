@@ -140,6 +140,28 @@ async def review_action(
         )
         db.add(rc)
 
+    # Sync content status when review is approved or rejected
+    if action in ("approve", "reject") and task.content_type == "course_version":
+        from app.models.course import Course, CourseVersion
+        from datetime import datetime, timezone
+        ver = (await db.execute(select(CourseVersion).where(CourseVersion.id == task.content_version_id))).scalar_one_or_none()
+        if ver:
+            if action == "approve":
+                # Archive any currently published version
+                published = (await db.execute(
+                    select(CourseVersion).where(CourseVersion.course_id == ver.course_id, CourseVersion.status == "published")
+                )).scalars().all()
+                for pv in published:
+                    pv.status = "archived"
+                ver.status = "published"
+                ver.published_at = datetime.now(timezone.utc)
+                # Sync course status
+                course = (await db.execute(select(Course).where(Course.id == ver.course_id))).scalar_one_or_none()
+                if course:
+                    course.status = "published"
+            else:
+                ver.status = "rejected"
+
     await db.commit()
     return success_response(data={"id": str(task.id), "status": task.status}, message=f"审核操作已完成：{action}")
 

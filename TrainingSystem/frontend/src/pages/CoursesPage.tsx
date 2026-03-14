@@ -3,21 +3,29 @@ import { useNavigate } from 'react-router-dom'
 import { Button, Form, Input, Modal, Space, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons'
-import type { CourseListItem } from '@/api/courses'
 import { coursesApi } from '@/api/courses'
 
 const { Title } = Typography
 
-const STATUS_COLOR: Record<string, string> = {
-  draft: 'default', published: 'success', archived: 'warning',
+interface CourseRow {
+  id: string; title: string; owner_id: string; status: string
+  current_version_id: string | null; version_count: number
+  latest_version_no: number | null; latest_version_status: string | null
+  created_at: string
 }
-const STATUS_LABEL: Record<string, string> = {
-  draft: '草稿', published: '已发布', archived: '已归档',
+
+const VER_STATUS_COLOR: Record<string, string> = {
+  draft: 'default', pending_review: 'processing', in_review: 'blue',
+  published: 'success', rejected: 'error', archived: 'warning',
+}
+const VER_STATUS_LABEL: Record<string, string> = {
+  draft: '草稿', pending_review: '待审核', in_review: '审核中',
+  published: '已发布', rejected: '已驳回', archived: '已归档',
 }
 
 export default function CoursesPage() {
   const navigate = useNavigate()
-  const [courses, setCourses] = useState<CourseListItem[]>([])
+  const [courses, setCourses] = useState<CourseRow[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(false)
@@ -29,7 +37,7 @@ export default function CoursesPage() {
     setLoading(true)
     try {
       const res = await coursesApi.list({ page: p, page_size: 20 })
-      setCourses(res.data.data.items)
+      setCourses(res.data.data.items as unknown as CourseRow[])
       setTotal(res.data.data.total)
     } finally {
       setLoading(false)
@@ -51,7 +59,7 @@ export default function CoursesPage() {
     }
   }
 
-  const columns: ColumnsType<CourseListItem> = [
+  const columns: ColumnsType<CourseRow> = [
     {
       title: '课程名称', dataIndex: 'title',
       render: (v, row) => (
@@ -59,8 +67,20 @@ export default function CoursesPage() {
       ),
     },
     {
-      title: '状态', dataIndex: 'status', width: 100,
-      render: (s: string) => <Tag color={STATUS_COLOR[s]}>{STATUS_LABEL[s] ?? s}</Tag>,
+      title: '版本状态', width: 160,
+      render: (_, row) => {
+        if (!row.latest_version_status) return <Tag>无版本</Tag>
+        return (
+          <span>
+            <Tag color={VER_STATUS_COLOR[row.latest_version_status]}>
+              {VER_STATUS_LABEL[row.latest_version_status] ?? row.latest_version_status}
+            </Tag>
+            <span style={{ color: '#999', fontSize: 12 }}>
+              v{row.latest_version_no}（共 {row.version_count} 个）
+            </span>
+          </span>
+        )
+      },
     },
     {
       title: '创建时间', dataIndex: 'created_at', width: 160,

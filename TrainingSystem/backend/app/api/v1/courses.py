@@ -22,10 +22,40 @@ async def list_courses(
     user_id: str = Depends(get_current_user_id),
     db: AsyncSession = Depends(get_db),
 ):
-    svc = CourseService(db)
-    owner = uuid.UUID(user_id) if mine else None
-    courses, total = await svc.list_courses(page, page_size, owner, status)
-    return paginated_response(items=[c.model_dump() for c in courses], total=total, page=page, page_size=page_size)
+    from sqlalchemy import func, select
+    from sqlalchemy.orm import selectinload
+    from app.models.course import Course
+
+    q = select(Course).options(selectinload(Course.versions))
+    if mine:
+        q = q.where(Course.owner_id == uuid.UUID(user_id))
+    if status:
+        q = q.where(Course.status == status)
+
+    count_q = select(func.count()).select_from(
+        select(Course).where(Course.owner_id == uuid.UUID(user_id)).subquery() if mine
+        else select(Course).where(Course.status == status).subquery() if status
+        else Course
+    )
+    total = (await db.execute(count_q)).scalar_one()
+    q = q.order_by(Course.created_at.desc()).offset((page - 1) * page_size).limit(page_size)
+    courses = (await db.execute(q)).scalars().all()
+
+    items = []
+    for c in courses:
+        latest = max(c.versions, key=lambda v: v.version_no) if c.versions else None
+        items.append({
+            "id": str(c.id),
+            "title": c.title,
+            "owner_id": str(c.owner_id),
+            "status": c.status,
+            "current_version_id": str(c.current_version_id) if c.current_version_id else None,
+            "latest_version_no": latest.version_no if latest else None,
+            "latest_version_status": latest.status if latest else None,
+            "version_count": len(c.versions),
+            "created_at": c.created_at.isoformat(),
+        })
+    return paginated_response(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.post("", response_model=dict, summary="创建课程")
